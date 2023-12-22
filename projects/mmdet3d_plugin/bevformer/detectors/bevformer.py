@@ -30,11 +30,11 @@ class BEVFormer(MVXTwoStageDetector):
                  pts_voxel_encoder=None,
                  pts_middle_encoder=None,
                  pts_fusion_layer=None,
-                 img_backbone=None,
-                 pts_backbone=None,
+                 img_backbone=None,  # img_backbone = ResNet
+                 pts_backbone=None,  
                  img_neck=None,
-                 pts_neck=None,
-                 pts_bbox_head=None,
+                 pts_neck=None,      # img_neck = FPN
+                 pts_bbox_head=None, # pts_bbox_head = BEVFormerHead
                  img_roi_head=None,
                  img_rpn_head=None,
                  train_cfg=None,
