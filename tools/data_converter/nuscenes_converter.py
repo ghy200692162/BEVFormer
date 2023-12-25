@@ -181,7 +181,8 @@ def _fill_trainval_infos(nusc,
                          train_scenes,
                          val_scenes,
                          test=False,
-                         max_sweeps=10):
+                         max_sweeps=10,
+                         debug=False):
     """Generate the train/val infos from the raw data.
 
     Args:
@@ -313,6 +314,8 @@ def _fill_trainval_infos(nusc,
             train_nusc_infos.append(info)
         else:
             val_nusc_infos.append(info)
+        if debug:
+            break
 
     return train_nusc_infos, val_nusc_infos
 
