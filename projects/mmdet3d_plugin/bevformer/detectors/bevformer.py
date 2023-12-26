@@ -66,7 +66,7 @@ class BEVFormer(MVXTwoStageDetector):
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
         """Extract features of images."""
-        B = img.size(0)
+        B = img.size(0) #
         if img is not None:
             
             # input_shape = img.shape[-2:]
@@ -78,22 +78,23 @@ class BEVFormer(MVXTwoStageDetector):
                 img.squeeze_()
             elif img.dim() == 5 and img.size(0) > 1:
                 B, N, C, H, W = img.size()
-                img = img.reshape(B * N, C, H, W)
-            if self.use_grid_mask:
+                img = img.reshape(B * N, C, H, W) #(batch_size*quene*cam_num,3,480,480)
+            if self.use_grid_mask: #随机掩码，随机遮盖一些部分。做数据增强
                 img = self.grid_mask(img)
 
-            img_feats = self.img_backbone(img)
+            img_feats = self.img_backbone(img)#（batch_size*quene*cam_num，2048，25，25）
             if isinstance(img_feats, dict):
                 img_feats = list(img_feats.values())
         else:
             return None
         if self.with_img_neck:
-            img_feats = self.img_neck(img_feats)
+            img_feats = self.img_neck(img_feats) #（batch_size*quene*cam_num，256，25，25）
 
-        img_feats_reshaped = []
-        for img_feat in img_feats:
+        img_feats_reshaped = [] #修改维度重新排列，
+        for img_feat in img_feats: #FPN多尺度特征，每个img_feat代表不同的尺度，
             BN, C, H, W = img_feat.size()
             if len_queue is not None:
+                #重新恢复成 （batch_size，quene，cam_num，256，25，25）
                 img_feats_reshaped.append(img_feat.view(int(B/len_queue), len_queue, int(BN / B), C, H, W))
             else:
                 img_feats_reshaped.append(img_feat.view(B, int(BN / B), C, H, W))
@@ -165,6 +166,7 @@ class BEVFormer(MVXTwoStageDetector):
             bs, len_queue, num_cams, C, H, W = imgs_queue.shape
             imgs_queue = imgs_queue.reshape(bs*len_queue, num_cams, C, H, W)
             img_feats_list = self.extract_feat(img=imgs_queue, len_queue=len_queue)
+            # 连续帧处理
             for i in range(len_queue):
                 img_metas = [each[i] for each in img_metas_list]
                 if not img_metas[0]['prev_bev_exists']:
@@ -214,12 +216,12 @@ class BEVFormer(MVXTwoStageDetector):
             dict: Losses of different branches.
         """
         
-        len_queue = img.size(1)
-        prev_img = img[:, :-1, ...]
-        img = img[:, -1, ...]
+        len_queue = img.size(1) #获取时序长度
+        prev_img = img[:, :-1, ...] # 获取之前的图像数据(1，2，6，3，480，480)
+        img = img[:, -1, ...] #获取当前帧图像（1，6，3，480，480）
 
         prev_img_metas = copy.deepcopy(img_metas)
-        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)
+        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)# 获取上一时刻bev特征
 
         img_metas = [each[len_queue-1] for each in img_metas]
         if not img_metas[0]['prev_bev_exists']:
