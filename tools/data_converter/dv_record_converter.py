@@ -36,21 +36,52 @@
         #}
 import json
 from numpy import long
-def create_dv_infos(image_path,
-                    root_path,
-                    out_path,
-):
-    
-    _fill_trainval_infos()
-    # dump to pkl
+cam_front_path="data/dvscenes/sample/apollo_sensor_camera_front_narrow_image_compressed.txt"
+cam_left_front_path = "data/dvscenes/sample/apollo_sensor_camera_left_front_image_compressed.txt"
+cam_left_rear_path = "data/dvscenes/sample/apollo_sensor_camera_left_rear_image_compressed.txt"
+cam_right_front_path = "data/dvscenes/sample/apollo_sensor_camera_right_front_image_compressed.txt"
+cam_right_rear_path = "data/dvscenes/sample/apollo_sensor_camera_right_rear_image_compressed.txt"
+cam_rear_path = "data/dvscenes/sample/apollo_sensor_camera_rear_image_compressed.txt"
 
+ego_data_path = "data/dvscenes/sample/apollo_sensor_gnss_gpfpd.txt"
+calibration_data_path = ""
+gt_data_path = ""
 #
 # 构建用于查询的map，key是时间戳，value是对应传感器数据
 # 方便通过时间戳聚合数据
 # #
+def create_dv_infos(image_path,
+                    root_path,
+                    out_path):
+    cam_front_dict = _parse_image_data(cam_front_path)
+    cam_front_right_dict = _parse_image_data(cam_right_front_path)
+    cam_front_left_dict = _parse_image_data(cam_left_front_path)
+
+    cam_back_dict = _parse_image_data(cam_rear_path)
+    cam_back_right_dict = _parse_image_data(cam_right_rear_path)
+    cam_back_left_dict = _parse_image_data(cam_left_rear_path)
+
+    ego_dict = _parse_gps_data(ego_data_path)
+
+    gt_dict = _parse_gt_data(gt_data_path)
+    calibration_dict = _parse_calibration_data(calibration_data_path)
+    _fill_trainval_infos(cam_front_dict,
+                            cam_front_right_dict,
+                            cam_front_left_dict,
+                            cam_back_dict,
+                            cam_back_right_dict,
+                            cam_back_left_dict,ego_dict,gt_dict,calibration_dict)
 
 
-def _fill_trainval_infos():
+
+
+def _fill_trainval_infos(cam_front_dict,
+                           cam_front_right_dict,
+                           cam_front_left_dict,
+                           cam_back_dict ,
+                           cam_back_right_dict,
+                           cam_back_left_dict,
+                           ego_dict,gt_dict,calibration_dict):
     # obtain 6 image's information per frame
     camera_types = [
         'CAM_FRONT',
@@ -130,10 +161,10 @@ def _parse_gps_data(data_path):
     return ego_pose
 
 
-def _parse_gt_data():
+def _parse_gt_data(data_path):
     pass
 
-def _parse_calibration_data():
+def _parse_calibration_data(data_path):
     pass
 
 if __name__ == "__main__":
@@ -142,8 +173,8 @@ if __name__ == "__main__":
     # for key,value in cam_front_dict.items():
     #     print(key,value)
     #     break
-    ego_data_path = "data/dvscenes/sample/apollo_sensor_gnss_gpfpd.txt"
-    ego_pose_dict = _parse_gps_data(ego_data_path)
-    for key,value in ego_pose_dict.items():
-        print(key,value)
-        break
+    # ego_data_path = "data/dvscenes/sample/apollo_sensor_gnss_gpfpd.txt"
+    # ego_pose_dict = _parse_gps_data(ego_data_path)
+    # for key,value in ego_pose_dict.items():
+    #     print(key,value)
+    #     break
