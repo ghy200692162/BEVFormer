@@ -35,6 +35,7 @@
         #
         #}
 import json
+import csv
 from numpy import long
 cam_front_path="data/dvscenes/sample/apollo_sensor_camera_front_narrow_image_compressed.txt"
 cam_left_front_path = "data/dvscenes/sample/apollo_sensor_camera_left_front_image_compressed.txt"
@@ -162,7 +163,41 @@ def _parse_gps_data(data_path):
 
 
 def _parse_gt_data(data_path):
+    gt_dict = {}
+    gt_dict_tmp= {}
+    with open(data_path,"r") as f:
+        csv_reader = csv.DictReader(f)
+        for row in csv_reader:
+            stamp_sec = row["stamp_sec"]
+            if gt_dict_tmp.__contains__(stamp_sec):
+                gt_dict_tmp[stamp_sec].append(row)
+            else:
+                 gt_dict_tmp[stamp_sec]= [row]
+        for stamp_sec, rows in gt_dict_tmp.items():
+            gt_boxes = []
+            gt_names = []
+            gt_velocity = []
+            for row in rows:
+                gt_box = {
+                    "obj_stamp_sec":row["obj_stamp_sec"],
+                    "type": row["type"],
+	                "type_confidence": row["type_confidence"],
+                    "roll": row["roll"],
+	                "pitch":row["pitch"],
+	                "yaw": row["yaw"],
+                    "center_x":row["center.x"],
+                    "center_y":row["center.y"],
+                    "center_z":row["center.z"],
+                }
+            gt_boxes.append(gt_box)
+            gt_dict[stamp_sec]=gt_boxes
+            
+    return gt_dict,gt_dict_tmp
+
+def _get_bbox():
     pass
+
+
 
 def _parse_calibration_data(data_path):
     pass
@@ -177,4 +212,11 @@ if __name__ == "__main__":
     # ego_pose_dict = _parse_gps_data(ego_data_path)
     # for key,value in ego_pose_dict.items():
     #     print(key,value)
+    #     break
+
+    gt_data_path = "data/dvscenes/sample/GT.csv"
+    _,_gt_tmp = _parse_gt_data(gt_data_path)
+    print(len(_gt_tmp["1660892076.450032"]))
+    # for gt in _gt_tmp:
+    #     print(gt)
     #     break
