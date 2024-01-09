@@ -37,7 +37,7 @@ gt_data_path = "data/dvscenes/sample/GT.csv"
 # 构建用于查询的map，key是时间戳，value是对应传感器数据
 # 方便通过时间戳聚合数据
 # #
-def create_dv_infos(image_path,
+def create_dv_data(image_path,
                     root_path,
                     out_path):
     cam_front_dict = _parse_image_data(cam_front_path)
@@ -52,12 +52,18 @@ def create_dv_infos(image_path,
 
     gt_dict = _parse_gt_data(gt_data_path)
     calibration_dict = _parse_calibration_data(calibration_data_path)
-    _fill_trainval_infos(cam_front_dict,
+    infos = _fill_trainval_infos(cam_front_dict,
                             cam_front_right_dict,
                             cam_front_left_dict,
                             cam_back_dict,
                             cam_back_right_dict,
                             cam_back_left_dict,ego_dict,gt_dict,calibration_dict)
+    
+    data = {
+        "infos":infos,
+        "metadata":"dv-test"
+    }
+    return data
 
 
 #聚合图像，cam_front 为基准，找到最近的一阵图像，生成图像数组 cams
@@ -147,7 +153,7 @@ def _fill_trainval_infos(cam_front_dict,
         #     gt_timestamp,
         #     ego_timestamp)
 
-    return info
+    return result
 def _find_closest_key(input_dict, target_key):
     # 获取字典中所有键
     all_keys = list(input_dict.keys())
@@ -265,13 +271,13 @@ def _parse_gt_data(data_path):
                     "obj_stamp_sec":float(row["obj_stamp_sec"]),
                     "type": int(row["type"]),
 	                "type_confidence": float(row["type_confidence"]),
-                    "roll": float(row["roll"]),
+                    "yaw": float(row["yaw"]),
+                    "roll": float(row["roll"]),#障碍物朝向
 	                "pitch":float(row["pitch"]),
-	                "yaw": float(row["yaw"]),
-                    "center_x":float(row["center.x"]),
+                    "center_x":float(row["center.x"]),#障碍物的位置，车体坐标系
                     "center_y":float(row["center.y"]),
                     "center_z":float(row["center.z"]),
-                    "height":float(row["height"]),
+                    "height":float(row["height"]),#障碍物的真实尺寸
                     "length":float(row["length"]),
                     "width":float(row["width"])
 
@@ -309,4 +315,8 @@ if __name__ == "__main__":
     root_path = ""
     out_path = ""
                 
-    create_dv_infos(image_path,root_path,out_path)
+    dataset = create_dv_data(image_path,root_path,out_path)
+    infos = dataset["infos"]
+    for info in infos:
+        print(info.keys())
+        break
