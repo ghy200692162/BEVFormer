@@ -37,7 +37,7 @@ __all__ = ["visualize_camera", "visualize_lidar", "visualize_map"]
 OBJECT_PALETTE = {
     "car": (255, 158, 0),
     "truck": (255, 99, 71),
-    "construction_vehicle": (233, 150, 70),
+    "unkonwn": (233, 150, 70),
     "bus": (255, 69, 0),
     "trailer": (255, 140, 0),
     "barrier": (112, 128, 144),
@@ -48,21 +48,6 @@ OBJECT_PALETTE = {
     "tricycle": (220, 20, 60),  # 相比原版 mmdet3d 的 visualize 增加 tricycle
     "cyclist": (220, 20, 60)  # 相比原版 mmdet3d 的 visualize 增加 cyclist
 }
-
-MAP_PALETTE = {
-    "drivable_area": (166, 206, 227),
-    "road_segment": (31, 120, 180),
-    "road_block": (178, 223, 138),
-    "lane": (51, 160, 44),
-    "ped_crossing": (251, 154, 153),
-    "walkway": (227, 26, 28),
-    "stop_line": (253, 191, 111),
-    "carpark_area": (255, 127, 0),
-    "road_divider": (202, 178, 214),
-    "lane_divider": (106, 61, 154),
-    "divider": (106, 61, 154),
-}
-
 
 def visualize_camera(
     fpath: str,
@@ -141,8 +126,8 @@ def visualize_lidar(
     bboxes: Optional[LiDARInstance3DBoxes] = None,
     labels: Optional[np.ndarray] = None,
     classes: Optional[List[str]] = None,
-    xlim: Tuple[float, float] = (-100, 100),
-    ylim: Tuple[float, float] = (-100, 100),
+    xlim: Tuple[float, float] = (-75, 75),
+    ylim: Tuple[float, float] = (-75, 75),
     color: Optional[Tuple[int, int, int]] = None,
     radius: float = 15,
     thickness: float = 25,
@@ -185,8 +170,84 @@ def visualize_lidar(
     )
     plt.close()
 
+def _transform_car_point_to_lidar(point_car):
+    from scipy.spatial.transform import Rotation
+    # 5号车lidar的标定参数
+    # x: 0.92
+    # y: 0
+    # z: 2.097419023513794
+    # roll: -0.004345358349382877
+    # pitch: -0.002790384536371908
+    # yaw: -1.578619956970215
+    yaw_radians = -1.578619956970215
+    pitch_radians = -0.002790384536371908
+    roll_radians = -0.004345358349382877
 
-if __name__ == "__main__":
+    # 定义平移向量
+    translation_vector = np.array([0.92, 0, 2.097419023513794 ])
+    # 创建Rotation对象并使用as_quat方法获取四元数
+    rotation = Rotation.from_euler('ZYX', [yaw_radians, pitch_radians, roll_radians], degrees=False)
+    quaternion = rotation.as_quat()
+    print("得到的四元数：", quaternion)
+    rotation = Rotation.from_quat(quaternion)
+    
+    # 使用四元数进行旋转
+    point_car_rotated = rotation.apply(point_car)
+
+    # 添加平移
+    point_lidar = point_car_rotated + translation_vector
+    return point_lidar
+
+def _test_visual_label_to_lidar():
     data_path = "tools/dv_visualizer/gt_npy/0_arr.npy"
     pcd_np = np.load(data_path)
-    visualize_lidar("0.png",lidar=pcd_np)
+    # (x, y, z, x_size, y_size, z_size, yaw).
+    point_car_1 = [3.0854086875915527, -6.708065986633301, 1.7315529584884644]
+    point_car_2 = [3.5677318572998047, -38.24081039428711, 0.9978694319725037]
+    point_car_3 = [0.002730364678427577, -45.33573532104492, 0.8485924601554871]
+    import torch
+
+    point_lidar_1 = __transform_car_point_to_lidar(point_car=point_car_1)
+    point_lidar_2 = __transform_car_point_to_lidar(point_car=point_car_2)
+    point_lidar_3 = __transform_car_point_to_lidar(point_car=point_car_3)
+    box1 = [
+        point_lidar_1[0],
+        point_lidar_1[1],
+        point_lidar_1[2],
+        11.161832809448242,
+        2.5999999046325684,
+        3.1942873001098633,
+        0.00014742525657736457,
+        ]
+    box2 = [
+        point_lidar_2[0],
+        point_lidar_2[1],
+        point_lidar_2[2],
+        4.9206743240356445,
+        2.0440545082092285,
+        1.5,
+        0.0001470674031128736,
+        ]
+    box3 = [
+        point_lidar_3[0],
+        point_lidar_3[1],
+        point_lidar_3[2],
+        4.996727466583252,
+        2.117948055267334,
+        1.5,
+        0.00014606691829041648,
+        ]
+    test_boxes = [box1,box2,box3]
+    boxes_tensor = torch.tensor(test_boxes,dtype=torch.float32)
+    label_boxes = LiDARInstance3DBoxes(tensor=boxes_tensor)
+    print(boxes_tensor[0])
+    labels = np.array([0,1,2,3,4])
+    classes = np.array(["unkonwn","pedestrian","bicycle","car","bus"])
+    visualize_lidar("0.png",
+                    bboxes=label_boxes,
+                    labels=labels,
+                    classes=classes,
+                    lidar=pcd_np)
+
+if __name__ == "__main__":
+    pass
