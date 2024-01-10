@@ -63,6 +63,10 @@ def create_dv_data(image_path,
         "infos":infos,
         "metadata":"dv-test"
     }
+    # dump to json for debug
+    with open("output.json","w") as json_result:
+        json.dump(data,json_result)
+
     return data
 
 
@@ -105,7 +109,7 @@ def _fill_trainval_infos(cam_front_dict,
             filted_cam_front_dict[candidated_cam_front_key] = candidated_frame
     #对每一组序列，降序排列，保证时间序列有效
     from collections import OrderedDict
-    filted_cam_front_dict = OrderedDict(sorted(filted_cam_front_dict.items(), key=lambda x: x[0], reverse=True))
+    filted_cam_front_dict = OrderedDict(sorted(filted_cam_front_dict.items(), key=lambda x: x[0], reverse=False))
     # obtain 6 image's information per frame
     for cam_front_key,cam_front_frame in filted_cam_front_dict.items():
         cam_front_right_timestamp ,cam_front_right_frame = _find_closest_key(cam_front_right_dict,cam_front_key)
@@ -123,12 +127,13 @@ def _fill_trainval_infos(cam_front_dict,
             "CAM_FRONT_RIGHT":_pack_cam(cam_front_right_frame,"CAM_FRONT_RIGHT"),
             "CAM_FRONT_LEFT":_pack_cam(cam_front_left_frame,"CAM_FRONT_LEFT"),
             "CAM_BACK":_pack_cam(cam_back_frame,"CAM_BACK"),
-            "CAM_BACK_LEFT":_pack_cam(cam_back_right_frame,"CAM_BACK_LEFT"),
-            "CAM_BACK_RIGHT":_pack_cam(cam_back_left_frame,"CAM_BACK_RIGHT"),
+            "CAM_BACK_LEFT":_pack_cam(cam_back_left_frame,"CAM_BACK_LEFT"),
+            "CAM_BACK_RIGHT":_pack_cam(cam_back_right_frame,"CAM_BACK_RIGHT"),
         }
 
         info = {
-            "lidar_path": "",
+            "lidar_path":gt_boxes[0]["lidar_frame_num"] ,#属于同一帧pcd的gt_box，对应的pcd帧号相同，取第一个,
+            "gt_timestamp":gt_timestamp,
             "token": "",
             "prev":"",
             "next": "",
@@ -141,7 +146,10 @@ def _fill_trainval_infos(cam_front_dict,
             "lidar2ego_rotation":"" ,#cs_record['rotation']
             "ego2global_translation":"",# pose_record['translation']
             "ego2global_rotation": "",#pose_record['rotation']
-            "timestamp": cam_front_key,}
+            "timestamp": cam_front_key,
+            "gt_boxes":gt_boxes,
+            "ego_info":ego_info
+            }
         
         result.append(info)
         # print(cam_front_key,
@@ -151,7 +159,8 @@ def _fill_trainval_infos(cam_front_dict,
         #     cam_back_right_timestamp,
         #     cam_back_left_timestamp,
         #     gt_timestamp,
-        #     ego_timestamp)
+        #     ego_timestamp,
+        # )
 
     return result
 def _find_closest_key(input_dict, target_key):
@@ -165,7 +174,7 @@ def _find_closest_key(input_dict, target_key):
 
 def _pack_cam(cam_dict,type):
     cam = {
-        "data_path":cam_dict["header_time"], 
+        "data_path":cam_dict["file_name"], 
         "type":type, 
         # "sample_data_token",
         # "sensor2ego_translation", 
@@ -279,8 +288,8 @@ def _parse_gt_data(data_path):
                     "center_z":float(row["center.z"]),
                     "height":float(row["height"]),#障碍物的真实尺寸
                     "length":float(row["length"]),
-                    "width":float(row["width"])
-
+                    "width":float(row["width"]),
+                    "lidar_frame_num":row["frame_num"]
                 }
                 gt_boxes.append(gt_box)
             gt_dict[float(stamp_sec)]=gt_boxes
@@ -318,5 +327,6 @@ if __name__ == "__main__":
     dataset = create_dv_data(image_path,root_path,out_path)
     infos = dataset["infos"]
     for info in infos:
-        print(info.keys())
+        with open('0_debug.json', 'w') as file:
+            json.dump(info, file)
         break
