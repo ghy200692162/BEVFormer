@@ -23,49 +23,68 @@
 import copy
 import os
 from typing import List, Optional, Tuple
+from mpl_toolkits.mplot3d import Axes3D
 
 import cv2
 import mmcv
 import numpy as np
 from matplotlib import pyplot as plt
-
+from matplotlib.patches import Polygon
 from mmdet3d.core.bbox import LiDARInstance3DBoxes
 
-__all__ = ["visualize_camera", "visualize_lidar"]
 
 labels = np.array([0,1,2,3,4])
 classes = np.array(["unkonwn","pedestrian","bicycle","car","bus"])
 
-OBJECT_PALETTE = {
-    "car": (255, 158, 0),
-    "truck": (255, 99, 71),
-    "unkonwn": (233, 150, 70),
-    "bus": (255, 69, 0),
-    "trailer": (255, 140, 0),
-    "barrier": (112, 128, 144),
-    "motorcycle": (255, 61, 99),
-    "bicycle": (220, 20, 60),
-    "pedestrian": (0, 0, 230),
-    "traffic_cone": (47, 79, 79),
-    "tricycle": (220, 20, 60),  # 相比原版 mmdet3d 的 visualize 增加 tricycle
-    "cyclist": (220, 20, 60)  # 相比原版 mmdet3d 的 visualize 增加 cyclist
-}
-
-
 def get_lidar2image():
-    lidar2cam_ext =  [[ 0.0442784, -0.999015, -0.00286609, -0.328146],
+    lidar2cam_ext =  np.array([[ 0.0442784, -0.999015, -0.00286609, -0.328146],
                            [-0.00370547, 0.00270465, -0.999989, 1.44921],
                            [ 0.999012, 0.0442885, -0.00358206, -1.93053],
-                           [ 0.0,  0.0,  0.0,  1.0]]
+                           [ 0.0,  0.0,  0.0,  1.0]])
 
     cam_intrinsic_matrix = [[7327.52569900726, 0, 1973.90006706734],
                             [0, 7358.97683813612, 958.209039784179],
                             [0, 0, 1]]
-    camera_intrinsics = np.eye(4).astype(np.float32)
-    camera_intrinsics[:3, :3] = cam_intrinsic_matrix
-    lidar2img_rt = camera_intrinsics @ np.array(lidar2cam_ext)
 
-    return lidar2img_rt
+    lidar2camera_r = lidar2cam_ext[:3, :3]
+    lidar2camera_t = lidar2cam_ext[:3, 3]
+
+    lidar2camera_rt = np.eye(4).astype(np.float32)
+    lidar2camera_rt[:3, :3] = lidar2camera_r.T
+    lidar2camera_rt[3, :3] = -lidar2camera_t
+    camera_intrinsics = np.eye(4).astype(np.float32)
+
+    camera_intrinsics[:3, :3] = np.array(cam_intrinsic_matrix)
+    lidar2image = camera_intrinsics @ lidar2camera_rt.T
+
+    return lidar2image
+
+def lidar_to_camera(point_lidar, extrinsics):
+    # 外参矩阵
+    lidar_to_camera_matrix = extrinsics[:3, :4]
+
+    # 在lidar坐标系下的点
+    point_lidar_homogeneous = np.concatenate([point_lidar, [1]])
+
+    # 转换到相机坐标系
+    point_camera_homogeneous = np.dot(lidar_to_camera_matrix, point_lidar_homogeneous)
+
+    # 返回相机坐标系下的点
+    return point_camera_homogeneous[:3]
+
+def camera_to_image(point_camera, intrinsics):
+    # 内参矩阵
+    camera_matrix = intrinsics[:3, :3]
+
+    # 投影到图像坐标系
+    point_image_homogeneous = np.dot(camera_matrix, point_camera)
+
+    # 归一化
+    point_image = point_image_homogeneous / point_image_homogeneous[2]
+
+    # 返回图像坐标系下的点
+    return point_image[:2]
+
 
 
 def _transform_car_point_to_camera(point_car):
@@ -88,7 +107,7 @@ def _transform_car_point_to_camera(point_car):
     translation_vector = np.array([ 0.246242, 1.94852, 1.44134 ])
     # 创建Rotation对象并使用as_quat方法获取四元数
 
-    quaternion = np.quaternion(-0.70822, -0.0146754, 0.0166455, 0.705643)
+    quaternion = np.array([-0.70822, -0.0146754, 0.0166455, 0.705643])
     print("得到的四元数：", quaternion)
     rotation = Rotation.from_quat(quaternion)
     # 使用四元数进行旋转
@@ -143,6 +162,8 @@ def visualize_camera(
         coords = coords @ transform.T
         coords = coords.reshape(-1, 8, 4)
 
+        print(coords)
+
         indices = np.all(coords[..., 2] > 0, axis=1)
         coords = coords[indices]
         # labels = labels[indices]
@@ -177,7 +198,6 @@ def visualize_camera(
                     canvas,
                     coords[index, start].astype(np.int),
                     coords[index, end].astype(np.int),
-                    color or OBJECT_PALETTE[name],
                     thickness,
                     cv2.LINE_AA,
                 )
@@ -187,48 +207,47 @@ def visualize_camera(
     mmcv.mkdir_or_exist(os.path.dirname(fpath))
     mmcv.imwrite(canvas, fpath)
 
+def draw_obstacle(fpath,obstacle_params,
+                    point_cloud,
+                    type="2D",
+                    xlim: Tuple[float, float] = (-100, 100),
+                    ylim: Tuple[float, float] = (-100, 100),
+                    color: Optional[Tuple[int, int, int]] = None,
+                    radius: float = 15,
+                    thickness: float = 25):
 
-def visualize_lidar(
-    fpath: str,
-    lidar: Optional[np.ndarray] = None,
-    *,
-    bboxes: Optional[LiDARInstance3DBoxes] = None,
-    labels: Optional[np.ndarray] = None,
-    classes: Optional[List[str]] = None,
-    xlim: Tuple[float, float] = (-75, 75),
-    ylim: Tuple[float, float] = (-75, 75),
-    color: Optional[Tuple[int, int, int]] = None,
-    radius: float = 15,
-    thickness: float = 25,
-) -> None:
     fig = plt.figure(figsize=(xlim[1] - xlim[0], ylim[1] - ylim[0]))
 
     ax = plt.gca()
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
-    ax.set_aspect(1)
+    # ax.set_aspect(1)
     ax.set_axis_off()
 
-    if lidar is not None:
-        plt.scatter(
-            lidar[:, 0],
-            lidar[:, 1],
-            s=radius,
-            c="white",
-        )
+    # 绘制点云
+    ax.scatter(point_cloud[:, 0], point_cloud[:, 1], s=1, color='white')
+    for obstacle in obstacle_params:
+        x, y, z, length, width, height, yaw = obstacle
+        # 定义障碍物框的4个顶点
+        corners = np.array([
+            [-length / 2, -width / 2],
+            [length / 2, -width / 2],
+            [length / 2, width / 2],
+            [-length / 2, width / 2]
+        ])
 
-    if bboxes is not None and len(bboxes) > 0:
-        coords = bboxes.corners[:, [0, 3, 7, 4, 0], :2]
-        for index in range(coords.shape[0]):
-            name = classes[labels[index]]
-            plt.plot(
-                coords[index, :, 0],
-                coords[index, :, 1],
-                linewidth=thickness,
-                color=np.array(color or OBJECT_PALETTE[name]) / 255,
-            )
+        # 将障碍物框进行旋转
+        rotation_matrix = np.array([
+            [np.cos(yaw), -np.sin(yaw)],
+            [np.sin(yaw), np.cos(yaw)]
+        ])
+        rotated_corners = corners.dot(rotation_matrix.T) + np.array([x, y])
+        # 绘制障碍物框 
+        obstacle_polygon = Polygon(rotated_corners, closed=True, edgecolor='red', facecolor='none', linewidth=10)
+        ax.add_patch(obstacle_polygon)
 
-    mmcv.mkdir_or_exist(os.path.dirname(fpath))
+    # 绘制点云
+    # 显示图像
     fig.savefig(
         fpath,
         dpi=10,
@@ -242,92 +261,97 @@ def visualize_lidar(
 def _transform_car_point_to_lidar(point_car):
     from scipy.spatial.transform import Rotation
     # 5号车lidar的标定参数
-    # x: 0.92
-    # y: 0
-    # z: 2.097419023513794
-    # roll: -0.004345358349382877
-    # pitch: -0.002790384536371908
-    # yaw: -1.578619956970215
-    yaw_radians = -1.578619956970215
-    pitch_radians = -0.002790384536371908
-    roll_radians = -0.004345358349382877
-
+    yaw_radians = (-1.578619956970215 * 180)/np.pi
+    pitch_radians = (-0.002790384536371908 * 180) / np.pi
+    roll_radians = (-0.004345358349382877 * 180) /np.pi
     # 定义平移向量
-    translation_vector = np.array([0.92, 0, 2.097419023513794 ])
+    translation_vector = np.array([0.92, 0, 2.097419023513794])
     # 创建Rotation对象并使用as_quat方法获取四元数
-    rotation = Rotation.from_euler('ZYX', [yaw_radians, pitch_radians, roll_radians], degrees=False)
+    rotation = Rotation.from_euler('Z', 0, degrees=True)
     quaternion = rotation.as_quat()
-    print("得到的四元数：", quaternion)
+    # print("得到的四元数：", quaternion)
     rotation = Rotation.from_quat(quaternion)
     
     # 使用四元数进行旋转
     point_car_rotated = rotation.apply(point_car)
-
+    point_lidar = point_car_rotated
     # 添加平移
-    point_lidar = point_car_rotated + translation_vector
+    # point_lidar = point_car_rotated + translation_vector
     return point_lidar
 
 def _test_visual_label_to_lidar():
-    data_path = "tools/dv_visualizer/gt_npy/7_arr.npy"
-    pcd_np = np.load(data_path)
-    # (x, y, z, x_size, y_size, z_size, yaw).
-    point_car_1 = [3.0854086875915527, -6.708065986633301, 1.7315529584884644]
-    point_car_2 = [3.5677318572998047, -38.24081039428711, 0.9978694319725037]
-    point_car_3 = [0.002730364678427577, -45.33573532104492, 0.8485924601554871]
-    import torch
+    # lidar_time 和图片的measure_time 最接近的一帧图像和一帧点云
+    # image 
+    # measure_ment = 1660892077.200013
+    # header_time =  1660892077.263186
 
+    # pcd 13.pcd 
+    # lidar_time = 1660892077.200094
+    # 障碍物信息从这一时刻的可视化界面上获得
+    data_path = "tools/dv_visualizer/gt_npy/13_arr.npy"
+    pcd_np = np.load(data_path)
+    # 原始数据坐标系
+    point_car_1 = [3.1486918926239014, -9.509262084960938,  1.6899200677871704] #1660892077.214
+    point_car_2 = [3.5677318572998047, -38.24081039428711, 0.9978694319725037]  #1660892076.421    
+    # point_car_3 = [-7.934744834899902, 37.1341438293457,1.6461652517318726]     #1660892077.271
+    point_car_3 = [-7.934744834899902, 37.1341438293457,1.6461652517318726]     #1660892077.271
+
+    import torch
     point_lidar_1 = _transform_car_point_to_lidar(point_car=point_car_1)
     point_lidar_2 = _transform_car_point_to_lidar(point_car=point_car_2)
     point_lidar_3 = _transform_car_point_to_lidar(point_car=point_car_3)
+
+    
     box1 = [
-        point_lidar_1[0],
-        point_lidar_1[1],
-        point_lidar_1[2],
-        11.161832809448242,
-        2.5999999046325684,
-        3.1942873001098633,
-        0.00014742525657736457,
+            point_lidar_1[0],
+            point_lidar_1[1],
+            point_lidar_1[2],
+            11.161832809448242,
+            2.5999999046325684,
+            3.1942873001098633,
+            0.007397098305516389 + np.pi / 2
         ]
     box2 = [
-        point_lidar_2[0],
-        point_lidar_2[1],
-        point_lidar_2[2],
-        4.9206743240356445,
-        2.0440545082092285,
-        1.5,
-        0.0001470674031128736,
+            point_lidar_2[0],
+            point_lidar_2[1],
+            point_lidar_2[2],
+            4.9206743240356445 ,
+            2.0440545082092285,
+            1.5,
+            -0.0016795649347141834 + np.pi / 2
         ]
     box3 = [
-        point_lidar_3[0],
-        point_lidar_3[1],
-        point_lidar_3[2],
-        4.996727466583252,
-        2.117948055267334,
-        1.5,
-        0.00014606691829041648,
-        ]
-    test_boxes = [box1,box2,box3]
-    boxes_tensor = torch.tensor(test_boxes,dtype=torch.float32)
-    label_boxes = LiDARInstance3DBoxes(tensor=boxes_tensor)
-    print(boxes_tensor[0])
+            point_lidar_3[0],
+            point_lidar_3[1],
+            point_lidar_3[2],
+            10.573736190795898,
+            2.5999999046325684,
+            3.0411298274993896,
+            -3.1340792133704456 + np.pi / 2
+    ]
+    print(point_car_3)
+    print("after tf")
+    print(point_lidar_3)
+    # print(box3)
+    boxes = [box1,box2,box3]
 
-    visualize_lidar("7.png",
-                    bboxes=label_boxes,
-                    labels=labels,
-                    classes=classes,
-                    lidar=pcd_np)
+    draw_obstacle("13.png",point_cloud=pcd_np,obstacle_params=boxes)
 
 def _test_visual_label_to_image():
     import torch
-    cam_front_image = "tools/dv_visualizer/data/cam_front/1660892076462496512.jpg"
+    cam_front_image = "tools/dv_visualizer/data/cam_front/1660892076412599808.jpg"
     image = cv2.imread(cam_front_image)
     image_np = np.array(image)
-    point_car_1 = [0.3372171223163605, 81.91390228271484, 0.7423714399337769]
-    point_car_2 = [-7.974083423614502, 62.70072937011719, 1.570648193359375]
+    # 1660892076462496512
+    # 1660892076472
+    # lidar 坐标系 
+    # 图像坐标系下
+    # lidar --》camera ---》 img
+    #       外参        内参
+    
 
-    point_lidar_1 = _transform_car_point_to_lidar(point_car=point_car_1)
-    point_lidar_2 = _transform_car_point_to_lidar(point_car=point_car_2)
-
+    point_lidar_1 = [0.3372171223163605, 81.91390228271484, 0.7423714399337769]
+    point_lidar_2 = [-7.974083423614502, 62.70072937011719, 1.570648193359375]
     box1 = [
         point_lidar_1[0],
         point_lidar_1[1],
@@ -352,6 +376,7 @@ def _test_visual_label_to_image():
     test_boxes = [box1,box2]
     boxes_tensor = torch.tensor(test_boxes,dtype=torch.float32)
     label_boxes = LiDARInstance3DBoxes(tensor=boxes_tensor)
+
     visualize_camera(fpath="cam_front.png",
                         bboxes=label_boxes,
                         transform=transform,
@@ -362,5 +387,5 @@ def _test_visual_label_to_image():
 
 
 if __name__ == "__main__":
-    # _test_visual_label_to_image()
-    _test_visual_label_to_lidar()
+    _test_visual_label_to_image()
+    #_test_visual_label_to_lidar()

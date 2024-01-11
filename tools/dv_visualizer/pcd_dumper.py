@@ -6,7 +6,7 @@ def _pcd_converter(data_path):
     import numpy as np
     point_cloud = o3d.io.read_point_cloud(data_path)
     pcd_arr = np.asarray(point_cloud.points)
-    np.save("7_arr.npy",pcd_arr)
+    np.save("13_arr.npy",pcd_arr)
     # open3d_point_cloud = o3d.geometry.PointCloud()
     # open3d_point_cloud.points = o3d.utility.Vector3dVector(pcd_arr)
 
@@ -15,5 +15,5 @@ def _pcd_converter(data_path):
     # o3d.visualization.draw_geometries(geometry_list=[point_cloud])
     return pcd_arr
 if __name__ == "__main__":
-    data_path="tools/dv_visualizer/gt/7.pcd"
+    data_path="tools/dv_visualizer/gt/13.pcd"
     pcd_np = _pcd_converter(data_path=data_path)
