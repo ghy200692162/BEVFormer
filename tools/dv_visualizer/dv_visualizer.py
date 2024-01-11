@@ -31,8 +31,10 @@ from matplotlib import pyplot as plt
 
 from mmdet3d.core.bbox import LiDARInstance3DBoxes
 
-__all__ = ["visualize_camera", "visualize_lidar", "visualize_map"]
+__all__ = ["visualize_camera", "visualize_lidar"]
 
+labels = np.array([0,1,2,3,4])
+classes = np.array(["unkonwn","pedestrian","bicycle","car","bus"])
 
 OBJECT_PALETTE = {
     "car": (255, 158, 0),
@@ -48,6 +50,73 @@ OBJECT_PALETTE = {
     "tricycle": (220, 20, 60),  # 相比原版 mmdet3d 的 visualize 增加 tricycle
     "cyclist": (220, 20, 60)  # 相比原版 mmdet3d 的 visualize 增加 cyclist
 }
+
+
+def get_lidar2image():
+    lidar2cam_ext =  [[ 0.0442784, -0.999015, -0.00286609, -0.328146],
+                           [-0.00370547, 0.00270465, -0.999989, 1.44921],
+                           [ 0.999012, 0.0442885, -0.00358206, -1.93053],
+                           [ 0.0,  0.0,  0.0,  1.0]]
+
+    cam_intrinsic_matrix = [[7327.52569900726, 0, 1973.90006706734],
+                            [0, 7358.97683813612, 958.209039784179],
+                            [0, 0, 1]]
+    camera_intrinsics = np.eye(4).astype(np.float32)
+    camera_intrinsics[:3, :3] = cam_intrinsic_matrix
+    lidar2img_rt = camera_intrinsics @ np.array(lidar2cam_ext)
+
+    return lidar2img_rt
+
+
+def _transform_car_point_to_camera(point_car):
+    from scipy.spatial.transform import Rotation
+
+    point_camera = []
+        # 5号车前长焦外参数
+        # transform:
+        #     translation:
+        #     x: 0.246242
+        #     y: 1.94852
+        #     z: 1.44134
+        # rotation:
+        #     x: -0.70822
+        #     y: -0.0146754
+        #     z: 0.0166455
+        #     w: 0.705643
+
+    # 定义平移向量
+    translation_vector = np.array([ 0.246242, 1.94852, 1.44134 ])
+    # 创建Rotation对象并使用as_quat方法获取四元数
+
+    quaternion = np.quaternion(-0.70822, -0.0146754, 0.0166455, 0.705643)
+    print("得到的四元数：", quaternion)
+    rotation = Rotation.from_quat(quaternion)
+    # 使用四元数进行旋转
+    point_car_rotated = rotation.apply(point_car)
+    point_camera_extrin = point_car_rotated + translation_vector
+
+
+    # 相机内参
+    # 内参矩阵
+    K = np.array([[7327.52569900726, 0, 1973.90006706734],
+              [0, 7358.97683813612, 958.209039784179],
+              [0, 0, 1]])
+    # 畸变系数
+    D = np.array([-0.172501828478052, -0.603745270942309, 0.00155951373290956, 0.00153030499564137, 1.38343696720889])
+    # 将点投影到相机坐标系
+    camera_point = np.dot(K, point_camera_extrin)
+    # 归一化相机坐标系下的点
+    camera_point_normalized = camera_point / camera_point[2]
+    # 打印相机坐标系下的点
+    print("相机坐标系下的点:", camera_point_normalized)
+    image_height = 2160
+    image_width = 3840
+
+    # 将相机坐标系下的点投影到图像平面
+    point_camera = np.array([camera_point_normalized[0] * image_width,
+                        camera_point_normalized[1] * image_height])
+
+    return point_camera
 
 def visualize_camera(
     fpath: str,
@@ -76,11 +145,11 @@ def visualize_camera(
 
         indices = np.all(coords[..., 2] > 0, axis=1)
         coords = coords[indices]
-        labels = labels[indices]
+        # labels = labels[indices]
 
         indices = np.argsort(-np.min(coords[..., 2], axis=1))
         coords = coords[indices]
-        labels = labels[indices]
+        # labels = labels[indices]
 
         coords = coords.reshape(-1, 4)
         coords[:, 2] = np.clip(coords[:, 2], a_min=1e-5, a_max=1e5)
@@ -199,7 +268,7 @@ def _transform_car_point_to_lidar(point_car):
     return point_lidar
 
 def _test_visual_label_to_lidar():
-    data_path = "tools/dv_visualizer/gt_npy/0_arr.npy"
+    data_path = "tools/dv_visualizer/gt_npy/7_arr.npy"
     pcd_np = np.load(data_path)
     # (x, y, z, x_size, y_size, z_size, yaw).
     point_car_1 = [3.0854086875915527, -6.708065986633301, 1.7315529584884644]
@@ -207,9 +276,9 @@ def _test_visual_label_to_lidar():
     point_car_3 = [0.002730364678427577, -45.33573532104492, 0.8485924601554871]
     import torch
 
-    point_lidar_1 = __transform_car_point_to_lidar(point_car=point_car_1)
-    point_lidar_2 = __transform_car_point_to_lidar(point_car=point_car_2)
-    point_lidar_3 = __transform_car_point_to_lidar(point_car=point_car_3)
+    point_lidar_1 = _transform_car_point_to_lidar(point_car=point_car_1)
+    point_lidar_2 = _transform_car_point_to_lidar(point_car=point_car_2)
+    point_lidar_3 = _transform_car_point_to_lidar(point_car=point_car_3)
     box1 = [
         point_lidar_1[0],
         point_lidar_1[1],
@@ -241,13 +310,57 @@ def _test_visual_label_to_lidar():
     boxes_tensor = torch.tensor(test_boxes,dtype=torch.float32)
     label_boxes = LiDARInstance3DBoxes(tensor=boxes_tensor)
     print(boxes_tensor[0])
-    labels = np.array([0,1,2,3,4])
-    classes = np.array(["unkonwn","pedestrian","bicycle","car","bus"])
-    visualize_lidar("0.png",
+
+    visualize_lidar("7.png",
                     bboxes=label_boxes,
                     labels=labels,
                     classes=classes,
                     lidar=pcd_np)
 
+def _test_visual_label_to_image():
+    import torch
+    cam_front_image = "tools/dv_visualizer/data/cam_front/1660892076462496512.jpg"
+    image = cv2.imread(cam_front_image)
+    image_np = np.array(image)
+    point_car_1 = [0.3372171223163605, 81.91390228271484, 0.7423714399337769]
+    point_car_2 = [-7.974083423614502, 62.70072937011719, 1.570648193359375]
+
+    point_lidar_1 = _transform_car_point_to_lidar(point_car=point_car_1)
+    point_lidar_2 = _transform_car_point_to_lidar(point_car=point_car_2)
+
+    box1 = [
+        point_lidar_1[0],
+        point_lidar_1[1],
+        point_lidar_1[2],
+        4.972667217254639, 
+        2.2444114685058594, 
+        1.6746292114257812,
+        0.000146653819693216,
+    ]
+
+    box2 = [
+        point_lidar_2[0],
+        point_lidar_2[1],
+        point_lidar_2[2],
+        10.573736190795898,
+        2.5999999046325684,
+        3.0411298274993896,
+        0.001461384413595719,
+    ]
+
+    transform = get_lidar2image()
+    test_boxes = [box1,box2]
+    boxes_tensor = torch.tensor(test_boxes,dtype=torch.float32)
+    label_boxes = LiDARInstance3DBoxes(tensor=boxes_tensor)
+    visualize_camera(fpath="cam_front.png",
+                        bboxes=label_boxes,
+                        transform=transform,
+                        image=image_np,
+                        labels=labels,
+                        classes=classes)
+
+
+
 if __name__ == "__main__":
-    pass
+    # _test_visual_label_to_image()
+    _test_visual_label_to_lidar()
