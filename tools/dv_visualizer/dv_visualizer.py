@@ -31,6 +31,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.patches import Polygon
 from mmdet3d.core.bbox import LiDARInstance3DBoxes
+from scipy.spatial.transform import Rotation
 
 
 labels = np.array([0,1,2,3,4])
@@ -422,8 +423,12 @@ def _test_visual_label_to_image():
     point_car_1 = [0.3372171223163605, 81.91390228271484, 0.7423714399337769]
     point_car_2 = [-7.974083423614502, 62.70072937011719, 1.570648193359375]
 
-    point_lidar_1 = _transform_car_point_to_lidar(point_car_1)
-    point_lidar_2 = _transform_car_point_to_lidar(point_car_2)
+    point_lidar_1 = point_car_1 #_transform_car_point_to_lidar(point_car_1)
+    point_lidar_2 = point_car_2 #_transform_car_point_to_lidar(point_car_2)
+
+    # point_lidar_1 = _transform_car_point_to_lidar(point_car_1)
+    # point_lidar_2 = _transform_car_point_to_lidar(point_car_2)
+
     box1 = [
         point_lidar_1[0],
         point_lidar_1[1],
@@ -459,5 +464,5 @@ def _test_visual_label_to_image():
 
 
 if __name__ == "__main__":
-    _test_visual_label_to_image()
-    # _test_visual_label_to_lidar()
+    # _test_visual_label_to_image()
+    _test_visual_label_to_lidar()

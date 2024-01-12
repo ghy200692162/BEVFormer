@@ -23,6 +23,9 @@ import json
 import csv
 import math
 from numpy import long
+import hashlib
+from scipy.spatial.transform import Rotation
+
 cam_front_path="data/dvscenes/sample/apollo_sensor_camera_front_narrow_image_compressed.txt"
 cam_left_front_path = "data/dvscenes/sample/apollo_sensor_camera_left_front_image_compressed.txt"
 cam_left_rear_path = "data/dvscenes/sample/apollo_sensor_camera_left_rear_image_compressed.txt"
@@ -57,7 +60,7 @@ def create_dv_data(image_path,
                             cam_front_left_dict,
                             cam_back_dict,
                             cam_back_right_dict,
-                            cam_back_left_dict,ego_dict,gt_dict,calibration_dict)
+                            cam_back_left_dict,ego_dict,gt_dict,calibration_dict,"","")
     
     data = {
         "infos":infos,
@@ -84,13 +87,17 @@ def create_dv_data(image_path,
 # 'sensor2lidar_translation', 
 # 'cam_intrinsic']
 
+#处理单个scene
 def _fill_trainval_infos(cam_front_dict,
                            cam_front_right_dict,
                            cam_front_left_dict,
                            cam_back_dict ,
                            cam_back_right_dict,
                            cam_back_left_dict,
-                           ego_dict,gt_dict,calibration_dict):
+                           ego_dict,gt_dict,
+                           calibration_dict,
+                           scene_name = "",
+                           scene_token = ""):
 
     result = []
     #filter front camera
@@ -111,7 +118,13 @@ def _fill_trainval_infos(cam_front_dict,
     from collections import OrderedDict
     filted_cam_front_dict = OrderedDict(sorted(filted_cam_front_dict.items(), key=lambda x: x[0], reverse=False))
     # obtain 6 image's information per frame
-    for cam_front_key,cam_front_frame in filted_cam_front_dict.items():
+    scene_num=1
+    prev_token = ""
+    current_token = ""
+    next_token = ""
+
+    for index ,(cam_front_key,cam_front_frame) in enumerate(filted_cam_front_dict.items()):
+            
         cam_front_right_timestamp ,cam_front_right_frame = _find_closest_key(cam_front_right_dict,cam_front_key)
         cam_front_left_timestamp ,cam_front_left_frame = _find_closest_key(cam_front_left_dict,cam_front_key)
         cam_back_timestamp ,cam_back_frame = _find_closest_key(cam_back_dict,cam_front_key)
@@ -121,6 +134,8 @@ def _fill_trainval_infos(cam_front_dict,
         gt_timestamp,gt_boxes = _find_closest_key(gt_dict,cam_front_key)
         ego_timestamp,ego_info = _find_closest_key(ego_dict,cam_front_key)
 
+        
+        current_token = hashlib.sha256(cam_front_key)
         # pack cams
         cams = {
             "CAM_FRONT":_pack_cam(cam_front_frame,"CAM_FRONT"),
@@ -134,33 +149,35 @@ def _fill_trainval_infos(cam_front_dict,
         info = {
             "lidar_path":gt_boxes[0]["lidar_frame_num"] ,#属于同一帧pcd的gt_box，对应的pcd帧号相同，取第一个,
             "gt_timestamp":gt_timestamp,
-            "token": "",
-            "prev":"",
-            "next": "",
+            "token": current_token,
+            "prev":prev_token,
+            "next": next_token,
             "can_bus": "",
             "frame_idx": 0,  # temporal related info
             "sweeps": [],
             "cams": cams,
             "scene_token":"",  # temporal related info
-            "lidar2ego_translation":"", #cs_record['translation']
-            "lidar2ego_rotation":"" ,#cs_record['rotation']
-            "ego2global_translation":"",# pose_record['translation']
-            "ego2global_rotation": "",#pose_record['rotation']
+            "lidar2ego_translation":[  0.9138,0.0136,2.092797295600176], #cs_record['translation'] 'lidar2ego_translation': [0.985793, 0.0, 1.84019], 'lidar2ego_rotation': [0.706749235646644, -0.015300993788500868, 0.01739745181256607, -0.7070846669051719], 'ego2global_translation': [600.1202137947669, 1647.490776275174, 0.0], 'ego2global_rotation': [-0.968669701688471, -0.004043399262151301, -0.007666594265959211, 0.24820129589817977]
+            "lidar2ego_rotation":[ 0.9988215998157758,0.0014161136772485944,0.049405229353998104,-0.003764120826211623] ,#cs_record['rotation']
+            "ego2global_translation":ego_info["pose"],# pose_record['translation']""
+            "ego2global_rotation": ego_info["rotation"],#pose_record['rotation']
             "timestamp": cam_front_key,
             "gt_boxes":gt_boxes,
             "ego_info":ego_info
             }
         
         result.append(info)
-        # print(cam_front_key,
-        #     cam_front_right_timestamp,
-        #     cam_front_left_timestamp,
-        #     cam_back_timestamp,
-        #     cam_back_right_timestamp,
-        #     cam_back_left_timestamp,
-        #     gt_timestamp,
-        #     ego_timestamp,
-        # )
+    for index ,sample in enumerate(result):
+        if index == 0:
+            sample["next"] = hashlib.sha256(result[1]["timestamp"])
+            continue
+        elif index > 0 and index <len(result)-1:
+            sample["prev"] = hashlib.sha256(result[index-1]["timestamp"])
+            sample["next"] = hashlib.sha256(result[index+1]["timestamp"])
+            continue
+        elif index == len(result):
+            sample["prev"] = hashlib.sha256(result[index-1]["timestamp"])
+            continue
 
     return result
 def _find_closest_key(input_dict, target_key):
@@ -239,6 +256,11 @@ def _parse_gps_data(data_path):
         while line:
             data = json.loads(line)
             header_time = data['header']['timestamp_sec']
+            x,y,z = llh_to_xyz(data["gnss"]["position"]["lon"],
+                                data["gnss"]["position"]["lat"],
+                                data["gnss"]["position"]["height"])
+
+            rotation = to_quat(data["heading"]["heading"],data["heading"]["pitch"],data["heading"]["roll"])
             sample = {
                 "header_time":header_time,
                 "measurement_time": data["gnss"]["measurement_time"],
@@ -249,8 +271,9 @@ def _parse_gps_data(data_path):
                 "heading":data["heading"]["heading"],
                 "pitch":data["heading"]["pitch"],
                 "roll":data["heading"]["roll"],
+                "pos":[x,y,z],
+                "rotation":rotation,
                 "baseline_length":data["heading"]["baseline_length"],
-                #"heading":{"measurement_time":1660892075.6,"baseline_length":1.671,"heading":152.718,"pitch":0.916,"roll":0.858}
             }
             ego_pose[header_time]=sample
             line = f.readline()
@@ -298,6 +321,26 @@ def _parse_gt_data(data_path):
     return gt_dict
 
 
+import math
+def to_quat(yaw_radians,pitch_radians,roll_radians):
+    rotation = Rotation.from_euler('ZYX', [yaw_radians, pitch_radians, roll_radians], degrees=False)
+    quaternion = rotation.as_quat()
+    return quaternion
+
+def llh_to_xyz(latitude, longitude, altitude):
+    # 地球半径（单位：公里）
+    earth_radius = 6371.0
+    
+    # 将经纬度转换为弧度
+    lat_rad = math.radians(latitude)
+    lon_rad = math.radians(longitude)
+    
+    # 计算直角坐标系中的坐标
+    x = (earth_radius + altitude) * math.cos(lat_rad) * math.cos(lon_rad)
+    y = (earth_radius + altitude) * math.cos(lat_rad) * math.sin(lon_rad)
+    z = (earth_radius + altitude) * math.sin(lat_rad)
+    
+    return x, y, z
 
 
 def _parse_calibration_data(data_path):
