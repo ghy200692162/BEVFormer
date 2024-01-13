@@ -14,6 +14,14 @@ def _pcd_converter(data_path):
     # # 创建窗口并显示俯视图
     # o3d.visualization.draw_geometries(geometry_list=[point_cloud])
     return pcd_arr
+def _dump_npy_to_bin(data_path):
+    import numpy as np
+    pcd_data = np.load(data_path)
+    # 保存为二进制文件
+    pcd_data.tofile("output_binary.bin")
+
 if __name__ == "__main__":
     data_path="tools/dv_visualizer/gt/13.pcd"
-    pcd_np = _pcd_converter(data_path=data_path)
+    npy_data_path = "tools/dv_visualizer/gt_npy/0_arr.npy"
+    # pcd_np = _pcd_converter(data_path=data_path)
+    _dump_npy_to_bin(npy_data_path)
