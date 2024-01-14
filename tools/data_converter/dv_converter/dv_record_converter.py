@@ -3,21 +3,25 @@ import json,yaml
 import csv
 import math,os
 from numpy import long
+import numpy as np
 import hashlib
 from scipy.spatial.transform import Rotation
+from collections import OrderedDict
 
-cam_front_path="data/dvscenes/sample/apollo_sensor_camera_front_narrow_image_compressed.txt"
-cam_left_front_path = "data/dvscenes/sample/apollo_sensor_camera_left_front_image_compressed.txt"
-cam_left_rear_path = "data/dvscenes/sample/apollo_sensor_camera_left_rear_image_compressed.txt"
-cam_right_front_path = "data/dvscenes/sample/apollo_sensor_camera_right_front_image_compressed.txt"
-cam_right_rear_path = "data/dvscenes/sample/apollo_sensor_camera_right_rear_image_compressed.txt"
-cam_rear_path = "data/dvscenes/sample/apollo_sensor_camera_rear_image_compressed.txt"
 
-ego_data_path = "data/dvscenes/sample/apollo_sensor_gnss_gpfpd.txt"
+
+cam_front_path="data/dvscenes_org/sample/apollo_sensor_camera_front_narrow_image_compressed.txt"
+cam_left_front_path = "data/dvscenes_org/sample/apollo_sensor_camera_left_front_image_compressed.txt"
+cam_left_rear_path = "data/dvscenes_org/sample/apollo_sensor_camera_left_rear_image_compressed.txt"
+cam_right_front_path = "data/dvscenes_org/sample/apollo_sensor_camera_right_front_image_compressed.txt"
+cam_right_rear_path = "data/dvscenes_org/sample/apollo_sensor_camera_right_rear_image_compressed.txt"
+cam_rear_path = "data/dvscenes_org/sample/apollo_sensor_camera_rear_image_compressed.txt"
+
+ego_data_path = "data/dvscenes_org/sample/apollo_sensor_gnss_gpfpd.txt"
 calibration_data_path = "data/dvscenes/icc/calibration"
-gt_data_path = "data/dvscenes/sample/GT.csv"
+gt_data_path = "data/dvscenes_org/sample/GT.csv"
 
-
+################################################################################################
 def to_quat(yaw_radians,pitch_radians,roll_radians):
     rotation = Rotation.from_euler('ZYX', [yaw_radians, pitch_radians, roll_radians], degrees=False)
     quaternion = rotation.as_quat()
@@ -36,13 +40,157 @@ def llh_to_xyz(latitude, longitude, altitude):
     return x, y, z
 
 
-def _find_closest_key(input_dict, target_key):
+def find_closest_key(input_dict, target_key):
     # 获取字典中所有键
     all_keys = list(input_dict.keys())
     # 找到与目标键最接近的键
     closest_key = min(all_keys, key=lambda x: abs(x - target_key))
     return closest_key, input_dict[closest_key]
 
+
+
+################################################################################################
+
+def get_cal(modality,yaml_ext_data,yaml_int_data,result_array,sensor,car_name,tag_name):
+        if modality == "camera":
+            if tag_name == "front":
+                transform = yaml_ext_data["transform"]
+            else :
+                transform = yaml_ext_data.get("header",{}).get(tag_name, {}).get("transform", {})
+            translation = [transform["translation"]['x'],transform["translation"]['y'],transform["translation"]['z']]
+            rotation = [transform["rotation"]["x"],transform["rotation"]["y"],transform["rotation"]["z"],transform["rotation"]["w"]]
+        elif modality == "lidar":
+            lidar_calibration = yaml_ext_data.get('lidar', [])[0].get('lidar_config', {}).get('calibration', {})
+            x = lidar_calibration.get('x')
+            y = lidar_calibration.get('y')
+            z = lidar_calibration.get('z')
+
+            roll = lidar_calibration.get('roll')
+            pitch = lidar_calibration.get('pitch')
+            yaw = lidar_calibration.get('yaw')
+            rotation = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False)
+            translation = [x,y,z]
+            rotation = rotation.as_quat().tolist()
+
+        if yaml_int_data is not None:
+            camera_intrinsic = yaml_int_data['K']
+            width =  yaml_int_data['width']
+            height = yaml_int_data['height']
+        else:
+            camera_intrinsic = []
+            width =  0
+            height = 0
+        result_array.append(
+            {
+                "token":hashlib.sha256((car_name+sensor+"cal").encode('utf-8')).hexdigest(),
+                "sensor_token":hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
+                "translation": translation,
+                "rotation":rotation,
+                "height" : height,
+                "width" : width,
+                "camera_intrinsic":[camera_intrinsic[i:i+3] for i in range(0, len(camera_intrinsic), 3)]
+            }
+        )
+
+def get_yaml_data(yaml_path):
+    with open(yaml_path, 'r') as file:
+        yaml_data = yaml.safe_load(file)
+    return yaml_data
+################################################################################################
+
+
+################################################################################################
+def compute_sensor_to_lidar(sensor2ego, lidar2ego):
+    """
+    计算 sensor 到 lidar 的外参
+
+    参数：
+    - sensor2ego: sensor 到 ego 的外参，[translation, rotation]
+    - lidar2ego: lidar 到 ego 的外参，[translation, rotation]
+
+    返回值：
+    - sensor2lidar: sensor 到 lidar 的外参，[translation, rotation]
+    """
+
+    translation_sensor, rotation_sensor = sensor2ego
+    translation_lidar, rotation_lidar = lidar2ego
+
+    # 构建旋转矩阵
+    rotation_matrix_sensor = Rotation.from_quat(rotation_sensor).as_matrix()
+    rotation_matrix_lidar = Rotation.from_quat(rotation_lidar).as_matrix()
+
+    # 构建变换矩阵
+    sensor2ego_matrix = np.eye(4)
+    sensor2ego_matrix[:3, :3] = rotation_matrix_sensor
+    sensor2ego_matrix[:3, 3] = translation_sensor
+
+    lidar2ego_matrix = np.eye(4)
+    lidar2ego_matrix[:3, :3] = rotation_matrix_lidar
+    lidar2ego_matrix[:3, 3] = translation_lidar
+
+    # 计算 sensor 到 lidar 的变换矩阵
+    sensor2lidar_matrix = np.dot(sensor2ego_matrix, np.linalg.inv(lidar2ego_matrix))
+
+    # 提取平移和旋转
+    translation_sensor2lidar = sensor2lidar_matrix[:3, 3]
+    rotation_sensor2lidar = Rotation.from_matrix(sensor2lidar_matrix[:3, :3]).as_quat()
+
+    return [translation_sensor2lidar.tolist(), rotation_sensor2lidar.tolist()]
+################################################################################################
+
+def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump_json=False):
+    sensor_meta = []
+    cal_meta = []
+
+    modality_dict = {
+        "camera":["CAM_FRONT","CAM_BACK","CAM_BACK_LEFT","CAM_FRONT_LEFT","CAM_FRONT_RIGHT","CAM_BACK_RIGHT"],
+        "lidar":["LIDAR_TOP"]
+    }
+
+    cam_front_ext = get_yaml_data(os.path.join(data_path,"front_narrow_extrinsics.yaml"))
+    cam_front_int = get_yaml_data(os.path.join(data_path,"front_narrow_intrinsics.yaml"))
+    cam_front_left_int = get_yaml_data(os.path.join(data_path,"left_front_intrinsics.yaml"))
+    cam_front_right_int = get_yaml_data(os.path.join(data_path,"right_front_intrinsics.yaml"))
+    cam_back_left_int = get_yaml_data(os.path.join(data_path,"left_rear_intrinsics.yaml"))
+    cam_back_right_int = get_yaml_data(os.path.join(data_path,"right_rear_intrinsics.yaml"))
+
+    cam_around_ext = get_yaml_data(os.path.join(data_path,"camera_around_extrinsics.yaml"))
+    lidar_ext = get_yaml_data(os.path.join(data_path,"car.yaml"))
+
+    car_name = cam_front_ext['header']['car_name']
+    #token = car+sensor
+    for modality,sensors in modality_dict.items():
+        for sensor in sensors:
+            sensor_meta.append({
+                        "token": hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
+                        "channel": sensor,
+                        "modality": modality
+                })
+    # token = car+sensor+cal
+    get_cal("camera",cam_around_ext,cam_front_left_int,cal_meta,"CAM_FRONT_LEFT",car_name,"left_front")
+    get_cal("camera",cam_around_ext,cam_front_right_int,cal_meta,"CAM_FRONT_RIGHT",car_name,"right_front")
+    get_cal("camera",cam_around_ext,cam_back_left_int,cal_meta,"CAM_BACK_LEFT",car_name,"left_rear")
+    get_cal("camera",cam_around_ext,cam_back_right_int,cal_meta,"CAM_BACK_RIGHT",car_name,"right_rear")
+    get_cal("camera",cam_front_ext,cam_front_int,cal_meta,"CAM_FRONT",car_name,"front")
+    
+    get_cal("lidar",lidar_ext,None,cal_meta,"LIDAR_TOP",car_name,"lidar")
+
+    if dump_json:
+        with open(os.path.join(sensor_output_file,"sensor.json"), 'w') as sensor_json_file:
+            json.dump(sensor_meta, sensor_json_file,indent=2)
+
+
+        with open(os.path.join(cal_sensor_file,"calibrated_sensor.json"), 'w') as cal_json_file:
+            json.dump(cal_meta, cal_json_file,indent=2)
+
+    cal_dict = {}
+    # print(cal_meta)
+
+    for cal in cal_meta:
+        cal_dict[cal["token"]]= cal
+    return cal_dict
+
+################################################################################################
 
 
 def create_dv_data(image_path,
@@ -59,8 +207,10 @@ def create_dv_data(image_path,
     ego_dict = _parse_gps_data(ego_data_path)
 
     gt_dict = _parse_gt_data(gt_data_path)
-    calibration_dict = {}#_parse_calibration_data(calibration_data_path)
-    infos = _fill_trainval_infos(cam_front_dict,
+    calibration_dict = get_calibration_data(data_path=calibration_data_path) 
+    car_name = "zhaojun"
+    infos = _fill_trainval_infos(car_name,
+                            cam_front_dict,
                             cam_front_right_dict,
                             cam_front_left_dict,
                             cam_back_dict,
@@ -78,13 +228,15 @@ def create_dv_data(image_path,
 
 
 #处理单个scene
-def _fill_trainval_infos(cam_front_dict,
+def _fill_trainval_infos(car_name,
+                            cam_front_dict,
                            cam_front_right_dict,
                            cam_front_left_dict,
                            cam_back_dict ,
                            cam_back_right_dict,
                            cam_back_left_dict,
-                           ego_dict,gt_dict,
+                           ego_dict,
+                           gt_dict,
                            calibration_dict,
                            scene_name = "",
                            scene_token = ""):
@@ -95,7 +247,7 @@ def _fill_trainval_infos(cam_front_dict,
     filted_cam_front_dict={}
     flag_gt_dict = {}
     for gt_timestamp in gt_dict.keys():
-        candidated_cam_front_key ,candidated_frame = _find_closest_key(cam_front_dict,gt_timestamp)
+        candidated_cam_front_key ,candidated_frame = find_closest_key(cam_front_dict,gt_timestamp)
         if flag_gt_dict.__contains__(gt_timestamp):
             stored_frame = flag_gt_dict[gt_timestamp]
             stored_timestamp = stored_frame["header_time"]
@@ -105,35 +257,45 @@ def _fill_trainval_infos(cam_front_dict,
             flag_gt_dict[gt_timestamp] = candidated_frame
             filted_cam_front_dict[candidated_cam_front_key] = candidated_frame
     #对每一组序列，降序排列，保证时间序列有效
-    from collections import OrderedDict
     filted_cam_front_dict = OrderedDict(sorted(filted_cam_front_dict.items(), key=lambda x: x[0], reverse=False))
     # obtain 6 image's information per frame
-    scene_num=1
     prev_token = ""
     current_token = ""
     next_token = ""
 
+    sence_meta = []
+    sample_meta = []
+    sample_data_meta = []
+    log_meta = []
+    isinstance_meta = []
+    ego_meta = []
+
+    
+    # 
     for index ,(cam_front_key,cam_front_frame) in enumerate(filted_cam_front_dict.items()):
             
-        cam_front_right_timestamp ,cam_front_right_frame = _find_closest_key(cam_front_right_dict,cam_front_key)
-        cam_front_left_timestamp ,cam_front_left_frame = _find_closest_key(cam_front_left_dict,cam_front_key)
-        cam_back_timestamp ,cam_back_frame = _find_closest_key(cam_back_dict,cam_front_key)
-        cam_back_right_timestamp ,cam_back_right_frame = _find_closest_key(cam_back_right_dict,cam_front_key)
-        cam_back_left_timestamp ,cam_back_left_frame = _find_closest_key(cam_back_left_dict,cam_front_key)
+        cam_front_right_timestamp ,cam_front_right_frame = find_closest_key(cam_front_right_dict,cam_front_key)
+        cam_front_left_timestamp ,cam_front_left_frame = find_closest_key(cam_front_left_dict,cam_front_key)
+        cam_back_timestamp ,cam_back_frame = find_closest_key(cam_back_dict,cam_front_key)
+        cam_back_right_timestamp ,cam_back_right_frame = find_closest_key(cam_back_right_dict,cam_front_key)
+        cam_back_left_timestamp ,cam_back_left_frame = find_closest_key(cam_back_left_dict,cam_front_key)
         
-        gt_timestamp,gt_boxes = _find_closest_key(gt_dict,cam_front_key)
-        ego_timestamp,ego_info = _find_closest_key(ego_dict,cam_front_key)
+        gt_timestamp,gt_boxes = find_closest_key(gt_dict,cam_front_key)
+        ego_timestamp,ego_info = find_closest_key(ego_dict,cam_front_key)
 
-        
-        current_token = hashlib.sha256(cam_front_key)
+        lidar_token = hashlib.sha256((car_name+"LIDAR_TOP"+"cal").encode('utf-8')).hexdigest()
+        lidar2ego_cal= calibration_dict[lidar_token]
+
+        current_token = hashlib.sha256(str(cam_front_key).encode('utf-8')).hexdigest()
         # pack cams
         cams = {
-            "CAM_FRONT":_pack_cam(cam_front_frame,"CAM_FRONT"),
-            "CAM_FRONT_RIGHT":_pack_cam(cam_front_right_frame,"CAM_FRONT_RIGHT"),
-            "CAM_FRONT_LEFT":_pack_cam(cam_front_left_frame,"CAM_FRONT_LEFT"),
-            "CAM_BACK":_pack_cam(cam_back_frame,"CAM_BACK"),
-            "CAM_BACK_LEFT":_pack_cam(cam_back_left_frame,"CAM_BACK_LEFT"),
-            "CAM_BACK_RIGHT":_pack_cam(cam_back_right_frame,"CAM_BACK_RIGHT"),
+                        #cam_dict,type,cal_dict,ego_dict
+            "CAM_FRONT":        _pack_cam(car_name,cam_front_frame,"CAM_FRONT",calibration_dict,ego_info),
+            "CAM_FRONT_RIGHT":  _pack_cam(car_name,cam_front_right_frame,"CAM_FRONT_RIGHT",calibration_dict,ego_info),
+            "CAM_FRONT_LEFT":   _pack_cam(car_name,cam_front_left_frame,"CAM_FRONT_LEFT",calibration_dict,ego_info),
+            # "CAM_BACK":         _pack_cam(car_name,cam_back_frame,"CAM_BACK",calibration_dict,ego_info),  #缺少后视的标定
+            "CAM_BACK_LEFT":    _pack_cam(car_name,cam_back_left_frame,"CAM_BACK_LEFT",calibration_dict,ego_info),
+            "CAM_BACK_RIGHT":   _pack_cam(car_name,cam_back_right_frame,"CAM_BACK_RIGHT",calibration_dict,ego_info),
         }
 
         info = {
@@ -143,12 +305,12 @@ def _fill_trainval_infos(cam_front_dict,
             "prev":prev_token,
             "next": next_token,
             "can_bus": "",
-            "frame_idx": 0,  # temporal related info
+            "frame_idx":index,  # temporal related info
             "sweeps": [],
             "cams": cams,
             "scene_token":"",  # temporal related info
-            "lidar2ego_translation":[ 0.9138,0.0136,2.092797295600176], #cs_record['translation'] 'lidar2ego_translation': [0.985793, 0.0, 1.84019], 'lidar2ego_rotation': [0.706749235646644, -0.015300993788500868, 0.01739745181256607, -0.7070846669051719], 'ego2global_translation': [600.1202137947669, 1647.490776275174, 0.0], 'ego2global_rotation': [-0.968669701688471, -0.004043399262151301, -0.007666594265959211, 0.24820129589817977]
-            "lidar2ego_rotation":[ 0.9988215998157758,0.0014161136772485944,0.049405229353998104,-0.003764120826211623] ,#cs_record['rotation']
+            "lidar2ego_translation":lidar2ego_cal["translation"],
+            "lidar2ego_rotation":lidar2ego_cal["rotation"],
             "ego2global_translation":ego_info["pose"],# pose_record['translation']""
             "ego2global_rotation": ego_info["rotation"],#pose_record['rotation']
             "timestamp": cam_front_key,
@@ -159,32 +321,42 @@ def _fill_trainval_infos(cam_front_dict,
         result.append(info)
     for index ,sample in enumerate(result):
         if index == 0:
-            sample["next"] = hashlib.sha256(result[1]["timestamp"]).hexdigest()
+            sample["next"] = hashlib.sha256(str(result[1]["timestamp"]).encode('utf-8')).hexdigest()
             continue
         elif index > 0 and index <len(result)-1:
-            sample["prev"] = hashlib.sha256(result[index-1]["timestamp"]).hexdigest()
-            sample["next"] = hashlib.sha256(result[index+1]["timestamp"]).hexdigest()
+            sample["prev"] = hashlib.sha256(str(result[index-1]["timestamp"]).encode('utf-8')).hexdigest()
+            sample["next"] = hashlib.sha256(str(result[index+1]["timestamp"]).encode('utf-8')).hexdigest()
             continue
         elif index == len(result):
-            sample["prev"] = hashlib.sha256(result[index-1]["timestamp"]).hexdigest()
+            sample["prev"] = hashlib.sha256(str(result[index-1]["timestamp"]).encode('utf-8')).hexdigest()
             continue
 
     return result
+# _pack_cam(car_name,cam_front_frame,"CAM_FRONT",calibration_dict,ego_info),
 
 
-def _pack_cam(cam_dict,type):
+def _pack_cam(car_name,cam_dict,sensor,cal_dict,ego_dict):
+    data_path=os.path.join("/data/dataset/dv_bev/mini-1.0",sensor)
+    cal_token = hashlib.sha256((car_name+sensor+"cal").encode('utf-8')).hexdigest()
+    lidar_token = hashlib.sha256((car_name+"LIDAR_TOP"+"cal").encode('utf-8')).hexdigest()
+
+    cam_cal = cal_dict[cal_token]
+    lidar_cal = cal_dict[lidar_token]
+    cam2ego = [cam_cal["translation"],cam_cal["rotation"]]
+    lidar2ego = [lidar_cal["translation"],lidar_cal["rotation"]]
+    cam2lidar = compute_sensor_to_lidar(cam2ego,lidar2ego)
     cam = {
-        "data_path":cam_dict["file_name"], 
-        "type":type, 
-        # "sample_data_token",
-        # "sensor2ego_translation", 
-        # "sensor2ego_rotation", 
-        # "ego2global_translation", 
-        # "ego2global_rotation", 
-        # "timestamp", 
-        # "sensor2lidar_rotation", 
-        # "sensor2lidar_translation", 
-        # "cam_intrinsic"
+        "data_path":os.path.join(data_path,cam_dict["file_name"]), 
+        "type":sensor, 
+        "sample_data_token" : "",
+        "sensor2ego_translation":cam_cal["translation"], 
+        "sensor2ego_rotation":cam_cal["rotation"], 
+        "ego2global_translation":ego_dict["pose"], 
+        "ego2global_rotation":ego_dict["rotation"], 
+        "timestamp":cam_dict["header_time"], # 如果需要真实接近lidar的时间，需要换成cam_dict["measurement_time"]
+        "sensor2lidar_rotation":cam2lidar[0],
+        "sensor2lidar_translation":cam2lidar[1], 
+        "cam_intrinsic":cam_cal["camera_intrinsic"]
     }
     return cam
 
@@ -243,7 +415,7 @@ def _parse_gps_data(data_path):
                                 data["gnss"]["position"]["lat"],
                                 data["gnss"]["position"]["height"])
 
-            rotation = to_quat(data["heading"]["heading"],data["heading"]["pitch"],data["heading"]["roll"])
+            rotation = to_quat(data["heading"]["heading"],data["heading"]["pitch"],data["heading"]["roll"]).tolist()
             sample = {
                 "header_time":header_time,
                 "measurement_time": data["gnss"]["measurement_time"],
@@ -254,7 +426,7 @@ def _parse_gps_data(data_path):
                 "heading":data["heading"]["heading"],
                 "pitch":data["heading"]["pitch"],
                 "roll":data["heading"]["roll"],
-                "pos":[x,y,z],
+                "pose":[x,y,z],
                 "rotation":rotation,
                 "baseline_length":data["heading"]["baseline_length"],
             }
@@ -283,13 +455,14 @@ def _parse_gt_data(data_path):
             gt_velocity = []
             for row in rows:
                 gt_box = {
+                    "lidar_time_sec":float(stamp_sec),
                     "obj_stamp_sec":float(row["obj_stamp_sec"]),
                     "type": int(row["type"]),
 	                "type_confidence": float(row["type_confidence"]),
                     "yaw": float(row["yaw"]),
                     "roll": float(row["roll"]),#障碍物朝向
 	                "pitch":float(row["pitch"]),
-                    "center_x":float(row["center.x"]),#障碍物的位置，车体坐标系
+                    "center_x":float(row["center.x"]),#障碍物的位置，车体坐标系 速腾原始数据是 前X，左Y
                     "center_y":float(row["center.y"]),
                     "center_z":float(row["center.z"]),
                     "height":float(row["height"]),#障碍物的真实尺寸
@@ -302,97 +475,28 @@ def _parse_gt_data(data_path):
 
     # return gt_dict,gt_dict_tmp
     return gt_dict
-def _get_cal(modality,yaml_ext_data,yaml_int_data,result_array,sensor,car_name,tag_name):
-        if modality == "camera":
-            if tag_name == "front":
-                transform = yaml_ext_data["transform"]
-            else :
-                transform = yaml_ext_data.get("header",{}).get(tag_name, {}).get("transform", {})
-            print(transform)
-            translation = [transform["translation"]['x'],transform["translation"]['y'],transform["translation"]['z']]
-            rotation = [transform["rotation"]["x"],transform["rotation"]["y"],transform["rotation"]["z"],transform["rotation"]["w"]]
-        elif modality == "lidar":
-            lidar_calibration = yaml_ext_data.get('lidar', [])[0].get('lidar_config', {}).get('calibration', {})
-            x = lidar_calibration.get('x')
-            y = lidar_calibration.get('y')
-            z = lidar_calibration.get('z')
 
-            roll = lidar_calibration.get('roll')
-            pitch = lidar_calibration.get('pitch')
-            yaw = lidar_calibration.get('yaw')
-            rotation = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False)
-            translation = [x,y,z]
-            rotation = rotation.as_quat().tolist()
+#生成 category.json
+# output_data_path:输出json文件的路径
+# instance_meta: 存放instance数据
+# gt_dict:真值数据
+def _get_instance(output_data_path,instance_meta,gt_dict):
+    # 对真值按照时间戳进行排序
+    gt_dict = OrderedDict(sorted(gt_dict.items(), key=lambda x: x[0], reverse=False))
 
-        if yaml_int_data is not None:
-            camera_intrinsic = yaml_int_data['K']
-            width =  yaml_int_data['width']
-            height = yaml_int_data['height']
-        else:
-            camera_intrinsic = []
-            width =  0
-            height = 0
-        result_array.append(
-            {
-                "token":hashlib.sha256((car_name+sensor+"cal").encode('utf-8')).hexdigest(),
-                "sensor_token":hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
-                "translation": translation,
-                "rotation":rotation,
-                "height" : height,
-                "width" : width,
-                "camera_intrinsic":[camera_intrinsic[i:i+3] for i in range(0, len(camera_intrinsic), 3)]
-            }
-        )
+def _get_category(output_data_path):
+    import random
+    category_meta = [
+        {
+            "token": "1fa93b757fc74fb197cdd60001ad8abf",
+            "name": "human.pedestrian.adult",
+            "description": "Adult subcategory."
+        }]
 
-def _get_yaml_data(yaml_path):
-    with open(yaml_path, 'r') as file:
-        yaml_data = yaml.safe_load(file)
-    return yaml_data
+    with open(os.path.join(output_data_path,"category.json"), 'w') as sensor_json_file:
+        json.dump(category_meta, sensor_json_file,indent=2)
+    return random.choice(category_meta)
 
-def _parse_calibration_data(data_path,sensor_output_file,cal_sensor_file):
-    sensor_meta = []
-    cal_meta = []
-
-    modality_dict = {
-        "camera":["CAM_FRONT","CAM_BACK","CAM_BACK_LEFT","CAM_FRONT_LEFT","CAM_FRONT_RIGHT","CAM_BACK_RIGHT"],
-        "lidar":["LIDAR_TOP"]
-    }
-
-    cam_front_ext = _get_yaml_data(os.path.join(data_path,"front_narrow_extrinsics.yaml"))
-    cam_front_int = _get_yaml_data(os.path.join(data_path,"front_narrow_intrinsics.yaml"))
-
-    cam_front_left_int = _get_yaml_data(os.path.join(data_path,"left_front_intrinsics.yaml"))
-    cam_front_right_int = _get_yaml_data(os.path.join(data_path,"right_front_intrinsics.yaml"))
-    cam_back_left_int = _get_yaml_data(os.path.join(data_path,"left_rear_intrinsics.yaml"))
-    cam_back_right_int = _get_yaml_data(os.path.join(data_path,"right_rear_intrinsics.yaml"))
-
-    cam_around_ext = _get_yaml_data(os.path.join(data_path,"camera_around_extrinsics.yaml"))
-    lidar_ext = _get_yaml_data(os.path.join(data_path,"car.yaml"))
-
-    car_name = cam_front_ext['header']['car_name']
-    print(car_name)
-    #token = car+sensor
-    for modality,sensors in modality_dict.items():
-        for sensor in sensors:
-            sensor_meta.append({
-                        "token": hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
-                        "channel": sensor,
-                        "modality": modality
-                })
-    # token = car+sensor+cal
-    _get_cal("camera",cam_around_ext,cam_front_left_int,cal_meta,"CAM_FRONT_LEFT",car_name,"left_front")
-    _get_cal("camera",cam_around_ext,cam_front_right_int,cal_meta,"CAM_FRONT_RIGHT",car_name,"right_front")
-    _get_cal("camera",cam_around_ext,cam_back_left_int,cal_meta,"CAM_BACK_LEFT",car_name,"left_rear")
-    _get_cal("camera",cam_around_ext,cam_back_right_int,cal_meta,"CAM_BACK_RIGHT",car_name,"right_rear")
-    _get_cal("camera",cam_front_ext,cam_front_int,cal_meta,"CAM_FRONT",car_name,"front")
-    _get_cal("lidar",lidar_ext,None,cal_meta,"LIDAR_TOP",car_name,"lidar")
-
-    with open(os.path.join(sensor_output_file,"sensor.json"), 'w') as sensor_json_file:
-        json.dump(sensor_meta, sensor_json_file,indent=2)
-
-
-    with open(os.path.join(cal_sensor_file,"calibrated_sensor.json"), 'w') as cal_json_file:
-        json.dump(cal_meta, cal_json_file,indent=2)
 
 
 if __name__ == "__main__":
@@ -422,7 +526,28 @@ if __name__ == "__main__":
     #     with open('0_debug.json', 'w') as file:
     #         json.dump(info, file)
     #     break
-    cal_data_path = "data/dvscenes/icc/calibration"
-    sensor_output_file = "."
-    cal_sensor_file ="."
-    _parse_calibration_data(cal_data_path,sensor_output_file,cal_sensor_file)
+
+    # # # test 生成 sensor.json,calibration_sensor.json
+    # cal_data_path = "data/dvscenes/icc/calibration"
+    # sensor_output_file = "."
+    # cal_sensor_file ="."
+    
+    # cal_dict = get_calibration_data(data_path=cal_data_path)
+    # print(cal_dict)
+
+
+    # 生成 sence.json,sample.json,sample_data.json
+    image_path = ""
+    root_path = ""
+    out_path = ""
+
+    dataset = create_dv_data(image_path,root_path,out_path)
+    infos = dataset["infos"]
+    for info in infos:
+        for key ,value in info.items():
+            print(key,type(value))
+            print("##################3")
+
+        break
+
+

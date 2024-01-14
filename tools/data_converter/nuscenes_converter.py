@@ -285,7 +285,7 @@ def _fill_trainval_infos(nusc,
                 [(anno['num_lidar_pts'] + anno['num_radar_pts']) > 0
                  for anno in annotations],
                 dtype=bool).reshape(-1)
-            # convert velo from global to lidar
+            # convert 速度 from global to lidar
             for i in range(len(boxes)):
                 velo = np.array([*velocity[i], 0.0])
                 velo = velo @ np.linalg.inv(e2g_r_mat).T @ np.linalg.inv(
@@ -464,6 +464,7 @@ def get_2d_boxes(nusc,
     """
 
     # Get the sample data and the sample corresponding to that sample data.
+    # 这个是sample_data对象
     sd_rec = nusc.get('sample_data', sample_data_token)
 
     assert sd_rec[
@@ -473,6 +474,7 @@ def get_2d_boxes(nusc,
         raise ValueError(
             'The 2D re-projections are available only for keyframes.')
 
+    # 这个是sample对象
     s_rec = nusc.get('sample', sd_rec['sample_token'])
 
     # Get the calibrated sensor and ego pose
@@ -482,6 +484,7 @@ def get_2d_boxes(nusc,
     camera_intrinsic = np.array(cs_rec['camera_intrinsic'])
 
     # Get all the annotation with the specified visibilties.
+    # 获取sample中所有的ann，注意不是sample_data
     ann_recs = [
         nusc.get('sample_annotation', token) for token in s_rec['anns']
     ]
@@ -519,6 +522,7 @@ def get_2d_boxes(nusc,
                                     True).T[:, :2].tolist()
 
         # Keep only corners that fall within the image.
+        # 只是保留投影到当前camera的坐标
         final_coords = post_process_coords(corner_coords)
 
         # Skip if the convex hull of the re-projected corners
