@@ -46,7 +46,6 @@ _num_levels_ = 1
 bev_h_ = 50
 bev_w_ = 50
 queue_length = 3 # each sequence contains `queue_length` frames.
-#queue_length = 1# each sequence contains `queue_length` frames.
 
 model = dict(
     type='BEVFormer',
@@ -214,15 +213,12 @@ data = dict(
     train=dict(
         type=dataset_type,
         data_root=data_root,
-        # ann_file=data_root + 'nuscenes_infos_temporal_train.pkl',
-        ann_file=data_root + 'dvscenes_infos_temporal_train.pkl',
-
+        ann_file=data_root + 'nuscenes_infos_temporal_train.pkl',
         pipeline=train_pipeline,
         classes=class_names,
         modality=input_modality,
         test_mode=False,
-        use_valid_flag=False,
-        with_velocity=False,
+        use_valid_flag=True,
         bev_size=(bev_h_, bev_w_),
         queue_length=queue_length,
         # we use box_type_3d='LiDAR' in kitti and nuscenes dataset
@@ -230,15 +226,13 @@ data = dict(
         box_type_3d='LiDAR'),
     val=dict(type=dataset_type,
              data_root=data_root,
-             # ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
-            ann_file=data_root + 'dvscenes_infos_temporal_val.pkl',
+             ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
 
              pipeline=test_pipeline,  bev_size=(bev_h_, bev_w_),
              classes=class_names, modality=input_modality, samples_per_gpu=1),
     test=dict(type=dataset_type,
               data_root=data_root,
-            #   ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
-            ann_file=data_root + 'dvscenes_infos_temporal_val.pkl',
+              ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
 
               pipeline=test_pipeline, bev_size=(bev_h_, bev_w_),
               classes=class_names, modality=input_modality),

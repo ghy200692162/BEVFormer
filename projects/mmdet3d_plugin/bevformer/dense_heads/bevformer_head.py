@@ -382,10 +382,19 @@ class BEVFormerHead(DETRHead):
         normalized_bbox_targets = normalize_bbox(bbox_targets, self.pc_range)
         isnotnan = torch.isfinite(normalized_bbox_targets).all(dim=-1)
         bbox_weights = bbox_weights * self.code_weights
+        # for debug
+        # print(bbox_preds[isnotnan, :10].to('cpu').shape)
+        # print(normalized_bbox_targets[isnotnan,:10].to('cpu').shape)
+        # print(normalized_bbox_targets[isnotnan,:10].to('cpu').shape)
 
+        # print(normalized_bbox_targets[isnotnan,:10].numel())
+        # 原来的code
+        # loss_bbox = self.loss_bbox(
+        #     bbox_preds[isnotnan, :10], normalized_bbox_targets[isnotnan,
+        #                                                        :10], bbox_weights[isnotnan, :10],
         loss_bbox = self.loss_bbox(
-            bbox_preds[isnotnan, :10], normalized_bbox_targets[isnotnan,
-                                                               :10], bbox_weights[isnotnan, :10],
+            bbox_preds[isnotnan, :1], normalized_bbox_targets[isnotnan,
+                                                               :1], bbox_weights[isnotnan, :1],
             avg_factor=num_total_pos)
         if digit_version(TORCH_VERSION) >= digit_version('1.8'):
             loss_cls = torch.nan_to_num(loss_cls)

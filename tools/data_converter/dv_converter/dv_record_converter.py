@@ -7,8 +7,20 @@ import numpy as np
 import hashlib
 from scipy.spatial.transform import Rotation
 from collections import OrderedDict
+import mmcv
+from os import path as osp
 
 
+nus_categories = ('car', 'truck', 'trailer', 'bus', 'construction_vehicle',
+                  'bicycle', 'motorcycle', 'pedestrian', 'traffic_cone',
+                  'barrier')
+
+nus_attributes = ('cycle.with_rider', 'cycle.without_rider',
+                  'pedestrian.moving', 'pedestrian.standing',
+                  'pedestrian.sitting_lying_down', 'vehicle.moving',
+                  'vehicle.parked', 'vehicle.stopped', 'None')
+
+dv_category = []
 
 cam_front_path="data/dvscenes_org/sample/apollo_sensor_camera_front_narrow_image_compressed.txt"
 cam_left_front_path = "data/dvscenes_org/sample/apollo_sensor_camera_left_front_image_compressed.txt"
@@ -135,8 +147,21 @@ def compute_sensor_to_lidar(sensor2ego, lidar2ego):
     translation_sensor2lidar = sensor2lidar_matrix[:3, 3]
     rotation_sensor2lidar = Rotation.from_matrix(sensor2lidar_matrix[:3, :3]).as_quat()
 
-    return [translation_sensor2lidar.tolist(), rotation_sensor2lidar.tolist()]
+    return [translation_sensor2lidar,sensor2lidar_matrix[:3, :3]]
 ################################################################################################
+
+################################################################################################
+def split_list(data, ratio=0.8):
+    # 计算拆分的索引位置
+    split_index = int(len(data) * ratio)
+    
+    # 按照索引位置进行拆分
+    list1 = data[:split_index]
+    list2 = data[split_index:]
+    
+    return list1, list2
+###############################################################################################
+
 
 def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump_json=False):
     sensor_meta = []
@@ -190,7 +215,6 @@ def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump
         cal_dict[cal["token"]]= cal
     return cal_dict
 
-################################################################################################
 
 
 def create_dv_data(image_path,
@@ -216,15 +240,36 @@ def create_dv_data(image_path,
                             cam_back_dict,
                             cam_back_right_dict,
                             cam_back_left_dict,ego_dict,gt_dict,calibration_dict,"","")
-    data = {
-        "infos":infos,
-        "metadata":"dv-test"
+    train_infos ,val_infos = split_list(infos)
+    train_data = {
+        "infos":train_infos,
+        "metadata":{
+            "version":"dv-train"
+        }
     }
-    # dump to json for debug
-    with open("output.json","w") as json_result:
-        json.dump(data,json_result)
 
-    return data
+    val_data = {
+        "infos":val_infos,
+        "metadata":{
+            "version":"dv-val"
+        }
+    }
+    info_prefix = "dvscenes"
+    train_info_path = osp.join(out_path,
+                             '{}_infos_temporal_train.pkl'.format(info_prefix))
+                    
+    val_info_path = osp.join(out_path,
+                             '{}_infos_temporal_val.pkl'.format(info_prefix))
+    
+    mmcv.dump(train_data, train_info_path)
+    mmcv.dump(val_data, val_info_path)
+
+    # dump to json for debug
+    # with open("output.json","w") as json_result:
+    #     json.dump(train_infos,json_result)
+
+
+    return infos
 
 
 #处理单个scene
@@ -285,38 +330,43 @@ def _fill_trainval_infos(car_name,
 
         lidar_token = hashlib.sha256((car_name+"LIDAR_TOP"+"cal").encode('utf-8')).hexdigest()
         lidar2ego_cal= calibration_dict[lidar_token]
-
+        lidar_path = gt_boxes[0]["lidar_frame_num"] ,#属于同一帧pcd的gt_box，对应的pcd帧号相同，取第一个,
+        gt_names = [gt["type"] for gt in gt_boxes]
+        num_lidar_pts = [gt["lidar_pts"] for gt in gt_boxes]
         current_token = hashlib.sha256(str(cam_front_key).encode('utf-8')).hexdigest()
         # pack cams
         cams = {
                         #cam_dict,type,cal_dict,ego_dict
-            "CAM_FRONT":        _pack_cam(car_name,cam_front_frame,"CAM_FRONT",calibration_dict,ego_info),
+            # "CAM_FRONT":        _pack_cam(car_name,cam_front_frame,"CAM_FRONT",calibration_dict,ego_info),
             "CAM_FRONT_RIGHT":  _pack_cam(car_name,cam_front_right_frame,"CAM_FRONT_RIGHT",calibration_dict,ego_info),
             "CAM_FRONT_LEFT":   _pack_cam(car_name,cam_front_left_frame,"CAM_FRONT_LEFT",calibration_dict,ego_info),
             # "CAM_BACK":         _pack_cam(car_name,cam_back_frame,"CAM_BACK",calibration_dict,ego_info),  #缺少后视的标定
             "CAM_BACK_LEFT":    _pack_cam(car_name,cam_back_left_frame,"CAM_BACK_LEFT",calibration_dict,ego_info),
             "CAM_BACK_RIGHT":   _pack_cam(car_name,cam_back_right_frame,"CAM_BACK_RIGHT",calibration_dict,ego_info),
         }
-
+        gt_boxes = [[gt["center_x"],gt["center_y"],gt["center_z"],gt["height"],gt["width"],gt["length"],gt["yaw"]] for gt in gt_boxes]
         info = {
-            "lidar_path":gt_boxes[0]["lidar_frame_num"] ,#属于同一帧pcd的gt_box，对应的pcd帧号相同，取第一个,
+            "lidar_path":lidar_path,
             "gt_timestamp":gt_timestamp,
             "token": current_token,
             "prev":prev_token,
             "next": next_token,
-            "can_bus": "",
+            "can_bus": np.array(_get_can_bus_info()),
             "frame_idx":index,  # temporal related info
             "sweeps": [],
             "cams": cams,
             "scene_token":"",  # temporal related info
             "lidar2ego_translation":lidar2ego_cal["translation"],
             "lidar2ego_rotation":lidar2ego_cal["rotation"],
-            "ego2global_translation":ego_info["pose"],# pose_record['translation']""
-            "ego2global_rotation": ego_info["rotation"],#pose_record['rotation']
+            "ego2global_translation":ego_info["pose"],
+            "ego2global_rotation": ego_info["rotation"],
             "timestamp": cam_front_key,
-            "gt_boxes":gt_boxes,
-            "ego_info":ego_info
+            "gt_boxes":np.array(gt_boxes),
+            "gt_names":np.array(gt_names),
+            "ego_info":ego_info,
+            "num_lidar_pts":np.array(num_lidar_pts)
             }
+        # print(info["gt_boxes"].shape)
         
         result.append(info)
     for index ,sample in enumerate(result):
@@ -354,14 +404,15 @@ def _pack_cam(car_name,cam_dict,sensor,cal_dict,ego_dict):
         "ego2global_translation":ego_dict["pose"], 
         "ego2global_rotation":ego_dict["rotation"], 
         "timestamp":cam_dict["header_time"], # 如果需要真实接近lidar的时间，需要换成cam_dict["measurement_time"]
-        "sensor2lidar_rotation":cam2lidar[0],
-        "sensor2lidar_translation":cam2lidar[1], 
-        "cam_intrinsic":cam_cal["camera_intrinsic"]
+        "sensor2lidar_rotation":cam2lidar[1],
+        "sensor2lidar_translation":cam2lidar[0], 
+        "cam_intrinsic":np.array(cam_cal["camera_intrinsic"])
     }
     return cam
 
 def _get_can_bus_info():
-    pass
+    can_bus = [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,0.]
+    return can_bus
 
 def _parse_image_data(data_path):
     cam_dict={}
@@ -457,7 +508,7 @@ def _parse_gt_data(data_path):
                 gt_box = {
                     "lidar_time_sec":float(stamp_sec),
                     "obj_stamp_sec":float(row["obj_stamp_sec"]),
-                    "type": int(row["type"]),
+                    "type": "pedestrian",#int(row["type"]),临时让程序可以跑通
 	                "type_confidence": float(row["type_confidence"]),
                     "yaw": float(row["yaw"]),
                     "roll": float(row["roll"]),#障碍物朝向
@@ -468,7 +519,8 @@ def _parse_gt_data(data_path):
                     "height":float(row["height"]),#障碍物的真实尺寸
                     "length":float(row["length"]),
                     "width":float(row["width"]),
-                    "lidar_frame_num":row["frame_num"]
+                    "lidar_frame_num":row["frame_num"],
+                    "lidar_pts":5
                 }
                 gt_boxes.append(gt_box)
             gt_dict[float(stamp_sec)]=gt_boxes
@@ -541,13 +593,7 @@ if __name__ == "__main__":
     root_path = ""
     out_path = ""
 
-    dataset = create_dv_data(image_path,root_path,out_path)
-    infos = dataset["infos"]
-    for info in infos:
-        for key ,value in info.items():
-            print(key,type(value))
-            print("##################3")
+    infos = create_dv_data(image_path,root_path,out_path)
 
-        break
 
 
