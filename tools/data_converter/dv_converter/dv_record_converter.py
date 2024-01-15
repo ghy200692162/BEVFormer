@@ -9,6 +9,10 @@ from scipy.spatial.transform import Rotation
 from collections import OrderedDict
 import mmcv
 from os import path as osp
+from dv_utils import *
+from parse_cal import *
+
+os.environ['PYTHONPATH'] = "tools/data_converter/dv_converter"
 
 
 nus_categories = ('car', 'truck', 'trailer', 'bus', 'construction_vehicle',
@@ -33,187 +37,148 @@ ego_data_path = "data/dvscenes_org/sample/apollo_sensor_gnss_gpfpd.txt"
 calibration_data_path = "data/dvscenes/icc/calibration"
 gt_data_path = "data/dvscenes_org/sample/GT.csv"
 
-################################################################################################
-def to_quat(yaw_radians,pitch_radians,roll_radians):
-    rotation = Rotation.from_euler('ZYX', [yaw_radians, pitch_radians, roll_radians], degrees=False)
-    quaternion = rotation.as_quat()
-    return quaternion
 
-def llh_to_xyz(latitude, longitude, altitude):
-    # 地球半径（单位：公里）
-    earth_radius = 6371.0
-    # 将经纬度转换为弧度
-    lat_rad = math.radians(latitude)
-    lon_rad = math.radians(longitude)
-    # 计算直角坐标系中的坐标
-    x = (earth_radius + altitude) * math.cos(lat_rad) * math.cos(lon_rad)
-    y = (earth_radius + altitude) * math.cos(lat_rad) * math.sin(lon_rad)
-    z = (earth_radius + altitude) * math.sin(lat_rad)
-    return x, y, z
+# def get_cal(modality,yaml_ext_data,yaml_int_data,result_array,sensor,car_name,tag_name):
+#         if modality == "camera":
+#             if tag_name == "front":
+#                 transform = yaml_ext_data["transform"]
+#             else :
+#                 transform = yaml_ext_data.get("header",{}).get(tag_name, {}).get("transform", {})
+#             translation = [transform["translation"]['x'],transform["translation"]['y'],transform["translation"]['z']]
+#             rotation = [transform["rotation"]["x"],transform["rotation"]["y"],transform["rotation"]["z"],transform["rotation"]["w"]]
+#         elif modality == "lidar":
+#             lidar_calibration = yaml_ext_data.get('lidar', [])[0].get('lidar_config', {}).get('calibration', {})
+#             x = lidar_calibration.get('x')
+#             y = lidar_calibration.get('y')
+#             z = lidar_calibration.get('z')
 
+#             roll = lidar_calibration.get('roll')
+#             pitch = lidar_calibration.get('pitch')
+#             yaw = lidar_calibration.get('yaw')
+#             rotation = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False)
+#             translation = [x,y,z]
+#             rotation = rotation.as_quat().tolist()
 
-def find_closest_key(input_dict, target_key):
-    # 获取字典中所有键
-    all_keys = list(input_dict.keys())
-    # 找到与目标键最接近的键
-    closest_key = min(all_keys, key=lambda x: abs(x - target_key))
-    return closest_key, input_dict[closest_key]
+#         if yaml_int_data is not None:
+#             camera_intrinsic = yaml_int_data['K']
+#             width =  yaml_int_data['width']
+#             height = yaml_int_data['height']
+#         else:
+#             camera_intrinsic = []
+#             width =  0
+#             height = 0
+#         result_array.append(
+#             {
+#                 "token":hashlib.sha256((car_name+sensor+"cal").encode('utf-8')).hexdigest(),
+#                 "sensor_token":hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
+#                 "translation": translation,
+#                 "rotation":rotation,
+#                 "height" : height,
+#                 "width" : width,
+#                 "camera_intrinsic":[camera_intrinsic[i:i+3] for i in range(0, len(camera_intrinsic), 3)]
+#             }
+#         )
 
-
-
-################################################################################################
-
-def get_cal(modality,yaml_ext_data,yaml_int_data,result_array,sensor,car_name,tag_name):
-        if modality == "camera":
-            if tag_name == "front":
-                transform = yaml_ext_data["transform"]
-            else :
-                transform = yaml_ext_data.get("header",{}).get(tag_name, {}).get("transform", {})
-            translation = [transform["translation"]['x'],transform["translation"]['y'],transform["translation"]['z']]
-            rotation = [transform["rotation"]["x"],transform["rotation"]["y"],transform["rotation"]["z"],transform["rotation"]["w"]]
-        elif modality == "lidar":
-            lidar_calibration = yaml_ext_data.get('lidar', [])[0].get('lidar_config', {}).get('calibration', {})
-            x = lidar_calibration.get('x')
-            y = lidar_calibration.get('y')
-            z = lidar_calibration.get('z')
-
-            roll = lidar_calibration.get('roll')
-            pitch = lidar_calibration.get('pitch')
-            yaw = lidar_calibration.get('yaw')
-            rotation = Rotation.from_euler('xyz', [roll, pitch, yaw], degrees=False)
-            translation = [x,y,z]
-            rotation = rotation.as_quat().tolist()
-
-        if yaml_int_data is not None:
-            camera_intrinsic = yaml_int_data['K']
-            width =  yaml_int_data['width']
-            height = yaml_int_data['height']
-        else:
-            camera_intrinsic = []
-            width =  0
-            height = 0
-        result_array.append(
-            {
-                "token":hashlib.sha256((car_name+sensor+"cal").encode('utf-8')).hexdigest(),
-                "sensor_token":hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
-                "translation": translation,
-                "rotation":rotation,
-                "height" : height,
-                "width" : width,
-                "camera_intrinsic":[camera_intrinsic[i:i+3] for i in range(0, len(camera_intrinsic), 3)]
-            }
-        )
-
-def get_yaml_data(yaml_path):
-    with open(yaml_path, 'r') as file:
-        yaml_data = yaml.safe_load(file)
-    return yaml_data
-################################################################################################
+# def get_yaml_data(yaml_path):
+#     with open(yaml_path, 'r') as file:
+#         yaml_data = yaml.safe_load(file)
+#     return yaml_data
 
 
-################################################################################################
-def compute_sensor_to_lidar(sensor2ego, lidar2ego):
-    """
-    计算 sensor 到 lidar 的外参
+# def compute_sensor_to_lidar(sensor2ego, lidar2ego):
+#     """
+#     计算 sensor 到 lidar 的外参
 
-    参数：
-    - sensor2ego: sensor 到 ego 的外参，[translation, rotation]
-    - lidar2ego: lidar 到 ego 的外参，[translation, rotation]
+#     参数：
+#     - sensor2ego: sensor 到 ego 的外参，[translation, rotation]
+#     - lidar2ego: lidar 到 ego 的外参，[translation, rotation]
 
-    返回值：
-    - sensor2lidar: sensor 到 lidar 的外参，[translation, rotation]
-    """
+#     返回值：
+#     - sensor2lidar: sensor 到 lidar 的外参，[translation, rotation]
+#     """
 
-    translation_sensor, rotation_sensor = sensor2ego
-    translation_lidar, rotation_lidar = lidar2ego
+#     translation_sensor, rotation_sensor = sensor2ego
+#     translation_lidar, rotation_lidar = lidar2ego
 
-    # 构建旋转矩阵
-    rotation_matrix_sensor = Rotation.from_quat(rotation_sensor).as_matrix()
-    rotation_matrix_lidar = Rotation.from_quat(rotation_lidar).as_matrix()
+#     # 构建旋转矩阵
+#     rotation_matrix_sensor = Rotation.from_quat(rotation_sensor).as_matrix()
+#     rotation_matrix_lidar = Rotation.from_quat(rotation_lidar).as_matrix()
 
-    # 构建变换矩阵
-    sensor2ego_matrix = np.eye(4)
-    sensor2ego_matrix[:3, :3] = rotation_matrix_sensor
-    sensor2ego_matrix[:3, 3] = translation_sensor
+#     # 构建变换矩阵
+#     sensor2ego_matrix = np.eye(4)
+#     sensor2ego_matrix[:3, :3] = rotation_matrix_sensor
+#     sensor2ego_matrix[:3, 3] = translation_sensor
 
-    lidar2ego_matrix = np.eye(4)
-    lidar2ego_matrix[:3, :3] = rotation_matrix_lidar
-    lidar2ego_matrix[:3, 3] = translation_lidar
+#     lidar2ego_matrix = np.eye(4)
+#     lidar2ego_matrix[:3, :3] = rotation_matrix_lidar
+#     lidar2ego_matrix[:3, 3] = translation_lidar
 
-    # 计算 sensor 到 lidar 的变换矩阵
-    sensor2lidar_matrix = np.dot(sensor2ego_matrix, np.linalg.inv(lidar2ego_matrix))
+#     # 计算 sensor 到 lidar 的变换矩阵
+#     sensor2lidar_matrix = np.dot(sensor2ego_matrix, np.linalg.inv(lidar2ego_matrix))
 
-    # 提取平移和旋转
-    translation_sensor2lidar = sensor2lidar_matrix[:3, 3]
-    rotation_sensor2lidar = Rotation.from_matrix(sensor2lidar_matrix[:3, :3]).as_quat()
+#     # 提取平移和旋转
+#     translation_sensor2lidar = sensor2lidar_matrix[:3, 3]
+#     rotation_sensor2lidar = Rotation.from_matrix(sensor2lidar_matrix[:3, :3]).as_quat()
 
-    return [translation_sensor2lidar,sensor2lidar_matrix[:3, :3]]
+#     return [translation_sensor2lidar,sensor2lidar_matrix[:3, :3]]
 ################################################################################################
 
 ################################################################################################
-def split_list(data, ratio=0.8):
-    # 计算拆分的索引位置
-    split_index = int(len(data) * ratio)
-    
-    # 按照索引位置进行拆分
-    list1 = data[:split_index]
-    list2 = data[split_index:]
-    
-    return list1, list2
+
 ###############################################################################################
 
 
-def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump_json=False):
-    sensor_meta = []
-    cal_meta = []
+# def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump_json=False):
+#     sensor_meta = []
+#     cal_meta = []
 
-    modality_dict = {
-        "camera":["CAM_FRONT","CAM_BACK","CAM_BACK_LEFT","CAM_FRONT_LEFT","CAM_FRONT_RIGHT","CAM_BACK_RIGHT"],
-        "lidar":["LIDAR_TOP"]
-    }
+#     modality_dict = {
+#         "camera":["CAM_FRONT","CAM_BACK","CAM_BACK_LEFT","CAM_FRONT_LEFT","CAM_FRONT_RIGHT","CAM_BACK_RIGHT"],
+#         "lidar":["LIDAR_TOP"]
+#     }
 
-    cam_front_ext = get_yaml_data(os.path.join(data_path,"front_narrow_extrinsics.yaml"))
-    cam_front_int = get_yaml_data(os.path.join(data_path,"front_narrow_intrinsics.yaml"))
-    cam_front_left_int = get_yaml_data(os.path.join(data_path,"left_front_intrinsics.yaml"))
-    cam_front_right_int = get_yaml_data(os.path.join(data_path,"right_front_intrinsics.yaml"))
-    cam_back_left_int = get_yaml_data(os.path.join(data_path,"left_rear_intrinsics.yaml"))
-    cam_back_right_int = get_yaml_data(os.path.join(data_path,"right_rear_intrinsics.yaml"))
+#     cam_front_ext = get_yaml_data(os.path.join(data_path,"front_narrow_extrinsics.yaml"))
+#     cam_front_int = get_yaml_data(os.path.join(data_path,"front_narrow_intrinsics.yaml"))
+#     cam_front_left_int = get_yaml_data(os.path.join(data_path,"left_front_intrinsics.yaml"))
+#     cam_front_right_int = get_yaml_data(os.path.join(data_path,"right_front_intrinsics.yaml"))
+#     cam_back_left_int = get_yaml_data(os.path.join(data_path,"left_rear_intrinsics.yaml"))
+#     cam_back_right_int = get_yaml_data(os.path.join(data_path,"right_rear_intrinsics.yaml"))
 
-    cam_around_ext = get_yaml_data(os.path.join(data_path,"camera_around_extrinsics.yaml"))
-    lidar_ext = get_yaml_data(os.path.join(data_path,"car.yaml"))
+#     cam_around_ext = get_yaml_data(os.path.join(data_path,"camera_around_extrinsics.yaml"))
+#     lidar_ext = get_yaml_data(os.path.join(data_path,"car.yaml"))
 
-    car_name = cam_front_ext['header']['car_name']
-    #token = car+sensor
-    for modality,sensors in modality_dict.items():
-        for sensor in sensors:
-            sensor_meta.append({
-                        "token": hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
-                        "channel": sensor,
-                        "modality": modality
-                })
-    # token = car+sensor+cal
-    get_cal("camera",cam_around_ext,cam_front_left_int,cal_meta,"CAM_FRONT_LEFT",car_name,"left_front")
-    get_cal("camera",cam_around_ext,cam_front_right_int,cal_meta,"CAM_FRONT_RIGHT",car_name,"right_front")
-    get_cal("camera",cam_around_ext,cam_back_left_int,cal_meta,"CAM_BACK_LEFT",car_name,"left_rear")
-    get_cal("camera",cam_around_ext,cam_back_right_int,cal_meta,"CAM_BACK_RIGHT",car_name,"right_rear")
-    get_cal("camera",cam_front_ext,cam_front_int,cal_meta,"CAM_FRONT",car_name,"front")
+#     car_name = cam_front_ext['header']['car_name']
+#     #token = car+sensor
+#     for modality,sensors in modality_dict.items():
+#         for sensor in sensors:
+#             sensor_meta.append({
+#                         "token": hashlib.sha256((car_name+sensor).encode('utf-8')).hexdigest(),
+#                         "channel": sensor,
+#                         "modality": modality
+#                 })
+#     # token = car+sensor+cal
+#     get_cal("camera",cam_around_ext,cam_front_left_int,cal_meta,"CAM_FRONT_LEFT",car_name,"left_front")
+#     get_cal("camera",cam_around_ext,cam_front_right_int,cal_meta,"CAM_FRONT_RIGHT",car_name,"right_front")
+#     get_cal("camera",cam_around_ext,cam_back_left_int,cal_meta,"CAM_BACK_LEFT",car_name,"left_rear")
+#     get_cal("camera",cam_around_ext,cam_back_right_int,cal_meta,"CAM_BACK_RIGHT",car_name,"right_rear")
+#     get_cal("camera",cam_front_ext,cam_front_int,cal_meta,"CAM_FRONT",car_name,"front")
     
-    get_cal("lidar",lidar_ext,None,cal_meta,"LIDAR_TOP",car_name,"lidar")
+#     get_cal("lidar",lidar_ext,None,cal_meta,"LIDAR_TOP",car_name,"lidar")
 
-    if dump_json:
-        with open(os.path.join(sensor_output_file,"sensor.json"), 'w') as sensor_json_file:
-            json.dump(sensor_meta, sensor_json_file,indent=2)
+#     if dump_json:
+#         with open(os.path.join(sensor_output_file,"sensor.json"), 'w') as sensor_json_file:
+#             json.dump(sensor_meta, sensor_json_file,indent=2)
 
 
-        with open(os.path.join(cal_sensor_file,"calibrated_sensor.json"), 'w') as cal_json_file:
-            json.dump(cal_meta, cal_json_file,indent=2)
+#         with open(os.path.join(cal_sensor_file,"calibrated_sensor.json"), 'w') as cal_json_file:
+#             json.dump(cal_meta, cal_json_file,indent=2)
 
-    cal_dict = {}
-    # print(cal_meta)
+#     cal_dict = {}
+#     # print(cal_meta)
 
-    for cal in cal_meta:
-        cal_dict[cal["token"]]= cal
-    return cal_dict
+#     for cal in cal_meta:
+#         cal_dict[cal["token"]]= cal
+#     return cal_dict
 
 
 
@@ -399,10 +364,10 @@ def _pack_cam(car_name,cam_dict,sensor,cal_dict,ego_dict):
         "data_path":os.path.join(data_path,cam_dict["file_name"]), 
         "type":sensor, 
         "sample_data_token" : "",
-        "sensor2ego_translation":cam_cal["translation"], 
-        "sensor2ego_rotation":cam_cal["rotation"], 
-        "ego2global_translation":ego_dict["pose"], 
-        "ego2global_rotation":ego_dict["rotation"], 
+        "sensor2ego_translation":cam_cal["translation"],
+        "sensor2ego_rotation":cam_cal["rotation"],
+        "ego2global_translation":ego_dict["pose"],
+        "ego2global_rotation":ego_dict["rotation"],
         "timestamp":cam_dict["header_time"], # 如果需要真实接近lidar的时间，需要换成cam_dict["measurement_time"]
         "sensor2lidar_rotation":cam2lidar[1],
         "sensor2lidar_translation":cam2lidar[0], 
@@ -594,6 +559,9 @@ if __name__ == "__main__":
     out_path = ""
 
     infos = create_dv_data(image_path,root_path,out_path)
+    for info in infos :
+        print(info)
+        break
 
 
 

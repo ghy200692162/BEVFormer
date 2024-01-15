@@ -22,7 +22,6 @@ def llh_to_xyz(latitude, longitude, altitude):
     z = (earth_radius + altitude) * math.sin(lat_rad)
     return x, y, z
 
-
 def find_closest_key(input_dict, target_key):
     # 获取字典中所有键
     all_keys = list(input_dict.keys())
@@ -30,6 +29,15 @@ def find_closest_key(input_dict, target_key):
     closest_key = min(all_keys, key=lambda x: abs(x - target_key))
     return closest_key, input_dict[closest_key]
 
+def split_list(data, ratio=0.8):
+    # 计算拆分的索引位置
+    split_index = int(len(data) * ratio)
+    
+    # 按照索引位置进行拆分
+    list1 = data[:split_index]
+    list2 = data[split_index:]
+    
+    return list1, list2
 
 
 def compute_sensor_to_lidar(sensor2ego, lidar2ego):
@@ -67,11 +75,5 @@ def compute_sensor_to_lidar(sensor2ego, lidar2ego):
     translation_sensor2lidar = sensor2lidar_matrix[:3, 3]
     rotation_sensor2lidar = Rotation.from_matrix(sensor2lidar_matrix[:3, :3]).as_quat()
 
-    return [translation_sensor2lidar, rotation_sensor2lidar]
+    return [translation_sensor2lidar,sensor2lidar_matrix[:3, :3]]
 
-    # # 示例用法
-    # sensor2ego_example = [[1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0]]  # 例子中的 sensor2ego 外参
-    # lidar2ego_example = [[-1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]  # 例子中的 lidar2ego 外参
-
-    # sensor2lidar_example = compute_sensor_to_lidar(sensor2ego_example, lidar2ego_example)
-    # print("sensor2lidar_example:", sensor2lidar_example)

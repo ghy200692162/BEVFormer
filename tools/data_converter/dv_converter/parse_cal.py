@@ -8,7 +8,6 @@ def get_cal(modality,yaml_ext_data,yaml_int_data,result_array,sensor,car_name,ta
                 transform = yaml_ext_data["transform"]
             else :
                 transform = yaml_ext_data.get("header",{}).get(tag_name, {}).get("transform", {})
-            print(transform)
             translation = [transform["translation"]['x'],transform["translation"]['y'],transform["translation"]['z']]
             rotation = [transform["rotation"]["x"],transform["rotation"]["y"],transform["rotation"]["z"],transform["rotation"]["w"]]
         elif modality == "lidar":
@@ -49,7 +48,6 @@ def get_yaml_data(yaml_path):
         yaml_data = yaml.safe_load(file)
     return yaml_data
 
-
 def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump_json=False):
     sensor_meta = []
     cal_meta = []
@@ -61,7 +59,6 @@ def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump
 
     cam_front_ext = get_yaml_data(os.path.join(data_path,"front_narrow_extrinsics.yaml"))
     cam_front_int = get_yaml_data(os.path.join(data_path,"front_narrow_intrinsics.yaml"))
-
     cam_front_left_int = get_yaml_data(os.path.join(data_path,"left_front_intrinsics.yaml"))
     cam_front_right_int = get_yaml_data(os.path.join(data_path,"right_front_intrinsics.yaml"))
     cam_back_left_int = get_yaml_data(os.path.join(data_path,"left_rear_intrinsics.yaml"))
@@ -71,7 +68,6 @@ def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump
     lidar_ext = get_yaml_data(os.path.join(data_path,"car.yaml"))
 
     car_name = cam_front_ext['header']['car_name']
-    print(car_name)
     #token = car+sensor
     for modality,sensors in modality_dict.items():
         for sensor in sensors:
@@ -86,6 +82,7 @@ def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump
     get_cal("camera",cam_around_ext,cam_back_left_int,cal_meta,"CAM_BACK_LEFT",car_name,"left_rear")
     get_cal("camera",cam_around_ext,cam_back_right_int,cal_meta,"CAM_BACK_RIGHT",car_name,"right_rear")
     get_cal("camera",cam_front_ext,cam_front_int,cal_meta,"CAM_FRONT",car_name,"front")
+    
     get_cal("lidar",lidar_ext,None,cal_meta,"LIDAR_TOP",car_name,"lidar")
 
     if dump_json:
@@ -95,9 +92,10 @@ def get_calibration_data(data_path,sensor_output_file="",cal_sensor_file="",dump
 
         with open(os.path.join(cal_sensor_file,"calibrated_sensor.json"), 'w') as cal_json_file:
             json.dump(cal_meta, cal_json_file,indent=2)
-        cal_dict = {}
+
+    cal_dict = {}
+    # print(cal_meta)
 
     for cal in cal_meta:
-        cal[cal_meta["token"]] = cal
-
+        cal_dict[cal["token"]]= cal
     return cal_dict
