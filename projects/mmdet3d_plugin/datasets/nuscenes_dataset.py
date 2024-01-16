@@ -43,6 +43,21 @@ class CustomNuScenesDataset(NuScenesDataset):
         index_list.append(index)
         for i in index_list:
             i = max(0, i)
+            #消费 pkl文件
+            #{
+            # "infos":[]
+            #  "versions":{
+            #           }
+            # }
+            # input_dict，在get_data_info中，完成了以下工作
+            # 1.ann封装
+            # 2.计算lidar2cam [r,t]矩阵
+            # 3.填充lidar点云地址
+            # 4.canbus数据填充，用于对齐相邻bev帧
+            # 5.get_data_into函数的结果可以用来可视化，看数据是否有问题
+            # 6.进入model之前，inupt_dict经过了以下流程
+            #   6.1prepare_train_data---->get_data_info---->pre_pipline ---->pipline
+            #   6.2经过上述过程的单个数据，会按找queue个，放在一起，union2one中完成整合
             input_dict = self.get_data_info(i)
             if input_dict is None:
                 return None
@@ -52,6 +67,15 @@ class CustomNuScenesDataset(NuScenesDataset):
                     (example is None or ~(example['gt_labels_3d']._data != -1).any()):
                 return None
             queue.append(example)
+            # union2one主要完成以下功能
+            #训练中有一个问题，如何判断前后2个bev属于同一个时序，不同时序的bev，时间上前后没有关联，应该不能引用进行
+            #时间特征融合union2one，最主要的功能是区分当前处理的queue，
+            #1.如果没有前一帧，那么当前帧就是一个bev时序中的第一帧，要做一下初始化操作
+            #  1.1 记录prev_sence 的token
+            #  1.2 初始化当前bev帧的can_bus信息，为（0,0）
+            #2.如果有前一帧，那么就要计算pos，和angle的datel
+            # 所有 图片image，image_meta会放到quene的最后一个元素
+            #
         return self.union2one(queue)
 
 
@@ -123,6 +147,9 @@ class CustomNuScenesDataset(NuScenesDataset):
             lidar2img_rts = []
             lidar2cam_rts = []
             cam_intrinsics = []
+            # 计算lidar2came的转换关系，用户把bev视角的（x，y，z）投影到不同cam的img坐标系中，上获取对应的特征进行融合，在空间自注意力中使用
+            #  input:sensor2lidar_rotation,该参数由sensor2ego,和lidar2ego在数据准备阶段生成
+            #  
             for cam_type, cam_info in info['cams'].items():
                 image_paths.append(cam_info['data_path'])
                 # obtain lidar to image transformation matrix
@@ -150,19 +177,25 @@ class CustomNuScenesDataset(NuScenesDataset):
                 ))
 
         if not self.test_mode:
+            # 处理ann数据，将每一个障碍物封装成LiDARInstance3DBoxes，源代码位于lidar_box3d.py中
+            # ann的坐标系，与现有suteng真值的坐标系相同，为前x，左y
+            # 根据速腾反馈，lidar坐标系也是前x，左y
             annos = self.get_ann_info(index)
             input_dict['ann_info'] = annos
 
         rotation = Quaternion(input_dict['ego2global_rotation'])
         translation = input_dict['ego2global_translation']
+        # can_bus数据这里主要是用自车的位置和朝向
+        # 计算前后bev车辆角度和位置的变化，用于前后bev帧的对齐
+        # 
         can_bus = input_dict['can_bus']
         can_bus[:3] = translation
         can_bus[3:7] = rotation
-        patch_angle = quaternion_yaw(rotation) / np.pi * 180
-        if patch_angle < 0:
+        patch_angle = quaternion_yaw(rotation) / np.pi * 180 #计算偏航角，由弧度转成角度
+        if patch_angle < 0:                                  #缺少数据在[0,到360）
             patch_angle += 360
-        can_bus[-2] = patch_angle / 180 * np.pi
-        can_bus[-1] = patch_angle
+        can_bus[-2] = patch_angle / 180 * np.pi #            #转成弧度
+        can_bus[-1] = patch_angle                            #存放原始角度
 
         return input_dict
 

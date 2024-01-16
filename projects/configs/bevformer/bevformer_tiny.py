@@ -46,7 +46,6 @@ _num_levels_ = 1
 bev_h_ = 50
 bev_w_ = 50
 queue_length = 3 # each sequence contains `queue_length` frames.
-#queue_length = 1# each sequence contains `queue_length` frames.
 
 model = dict(
     type='BEVFormer',
