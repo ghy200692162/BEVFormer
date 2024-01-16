@@ -58,6 +58,22 @@ class CustomNuScenesDataset(NuScenesDataset):
             # 6.进入model之前，inupt_dict经过了以下流程
             #   6.1prepare_train_data---->get_data_info---->pre_pipline ---->pipline
             #   6.2经过上述过程的单个数据，会按找queue个，放在一起，union2one中完成整合
+            # 7.queue中的元素是一个 dict
+            #   7.1 ['img_metas', 'gt_bboxes_3d', 'gt_labels_3d', 'img']
+            #    img是用于训练的img
+            #   7.2 img_metas包含
+            #       filename:一帧bev包含所有的图片路径
+            #       ori_shape:
+            #       img_shape:
+            #       lidar2img:
+            #       lidar2cam:
+            #       pad_shape:
+            #       scale_factor:
+            #       box_type_3d:
+            #       img_norm_cfg:
+            #       pts_filename:
+            #       scene_token:
+            #       can_bus:
             input_dict = self.get_data_info(i)
             if input_dict is None:
                 return None

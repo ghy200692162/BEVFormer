@@ -34,7 +34,7 @@ class BEVFormer(MVXTwoStageDetector):
                  pts_backbone=None,  
                  img_neck=None,
                  pts_neck=None,      # img_neck = FPN
-                 pts_bbox_head=None, # pts_bbox_head = BEVFormerHead
+                 pts_bbox_head=None, # pts_bbox_head = BEVFormerHead pts:pointclouds
                  img_roi_head=None,
                  img_rpn_head=None,
                  train_cfg=None,

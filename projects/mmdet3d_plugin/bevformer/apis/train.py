@@ -22,8 +22,10 @@ def custom_train_model(model,
     future.
     """
     if cfg.model.type in ['EncoderDecoder3D']:
+ 
         assert False
     else:
+
         custom_train_detector(
             model,
             dataset,
