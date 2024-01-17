@@ -158,22 +158,29 @@ class BEVFormer(MVXTwoStageDetector):
     def obtain_history_bev(self, imgs_queue, img_metas_list):
         """Obtain history BEV features iteratively. To save GPU memory, gradients are not calculated.
         """
+        
         self.eval()
-
         with torch.no_grad():
             prev_bev = None
-            bs, len_queue, num_cams, C, H, W = imgs_queue.shape
+            bs, len_queue, num_cams, C, H, W = imgs_queue.shape                     #len_queue = origin_len_queue-1
+
             imgs_queue = imgs_queue.reshape(bs*len_queue, num_cams, C, H, W)
-            img_feats_list = self.extract_feat(img=imgs_queue, len_queue=len_queue)
-            # 连续帧处理
+            img_feats_list = self.extract_feat(img=imgs_queue, len_queue=len_queue) #tiny 中fpn只配置了一层
             for i in range(len_queue):
+                # i =0,1,2
                 img_metas = [each[i] for each in img_metas_list]
-                if not img_metas[0]['prev_bev_exists']:
+                if not img_metas[0]['prev_bev_exists']: #d 序列中的第一帧
                     prev_bev = None
                 # img_feats = self.extract_feat(img=img, img_metas=img_metas)
                 img_feats = [each_scale[:, i] for each_scale in img_feats_list]
+                # only_bev = True:只调用encoder ，进行bev feature的计算
                 prev_bev = self.pts_bbox_head(
                     img_feats, img_metas, prev_bev, only_bev=True)
+                    # bevformer_head.py--->peceptionTransformer.py--->get_bev_features 
+                    # ---->ecnoder.py(BEVFormerEncoder)
+                    # ---->encoder.py(BEVFormerLayer)
+                        #------> self_attn
+                        #  ----> cross_attn
             self.train()
             return prev_bev
 
@@ -215,12 +222,13 @@ class BEVFormer(MVXTwoStageDetector):
             dict: Losses of different branches.
         """
         
-        len_queue = img.size(1) #获取时序长度
-        prev_img = img[:, :-1, ...] # 获取之前的图像数据(1，2，6，3，480，480)
-        img = img[:, -1, ...] #获取当前帧图像（1，6，3，480，480）
+        len_queue = img.size(1)         #获取当前bev的seq序列长度
+        prev_img = img[:, :-1, ...]     #获取前len_queue个图像
+        img = img[:, -1, ...]           #获取最后一个时刻的图像
 
         prev_img_metas = copy.deepcopy(img_metas)
-        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)# 获取上一时刻bev特征
+
+        prev_bev = self.obtain_history_bev(prev_img, prev_img_metas)# 获取历史bev特征
 
         img_metas = [each[len_queue-1] for each in img_metas]
         if not img_metas[0]['prev_bev_exists']:

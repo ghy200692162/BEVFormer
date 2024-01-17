@@ -41,8 +41,8 @@ class CustomNuScenesDataset(NuScenesDataset):
         random.shuffle(index_list)
         index_list = sorted(index_list[1:])
         index_list.append(index)
+             
         for i in index_list:
-            i = max(0, i)
             #消费 pkl文件
             #{
             # "infos":[]
@@ -74,6 +74,7 @@ class CustomNuScenesDataset(NuScenesDataset):
             #       pts_filename:
             #       scene_token:
             #       can_bus:
+            i = max(0, i)
             input_dict = self.get_data_info(i)
             if input_dict is None:
                 return None
@@ -91,16 +92,22 @@ class CustomNuScenesDataset(NuScenesDataset):
             #  1.2 初始化当前bev帧的can_bus信息，为（0,0）
             #2.如果有前一帧，那么就要计算pos，和angle的datel
             # 所有 图片image，image_meta会放到quene的最后一个元素
+            #  每一个
             #
-        return self.union2one(queue)
+            # for item in queue:
+            #     print[item["sample_idx"]]
+        tmp = self.union2one(queue)
+        return tmp
 
-
+    #将len_quene个 连接成一个序列，第一个prev_bev_exists=False，后面的prev_bev_exists=True
+    #填充canbus的oos，angle，用户空间对齐
     def union2one(self, queue):
         imgs_list = [each['img'].data for each in queue]
         metas_map = {}
         prev_scene_token = None
         prev_pos = None
         prev_angle = None
+        
         for i, each in enumerate(queue):
             metas_map[i] = each['img_metas'].data
             if metas_map[i]['scene_token'] != prev_scene_token:

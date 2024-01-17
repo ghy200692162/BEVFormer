@@ -45,7 +45,7 @@ _ffn_dim_ = _dim_*2
 _num_levels_ = 1
 bev_h_ = 50
 bev_w_ = 50
-queue_length = 3 # each sequence contains `queue_length` frames.
+queue_length = 4 # each sequence contains `queue_length` frames.
 
 model = dict(
     type='BEVFormer',
@@ -209,12 +209,12 @@ test_pipeline = [
 
 data = dict(
     samples_per_gpu=1,
-    workers_per_gpu=4,
+    workers_per_gpu=1,
     train=dict(
         type=dataset_type,
         data_root=data_root,
-        # ann_file=data_root + 'nuscenes_infos_temporal_train.pkl',
-        ann_file=data_root + 'dvscenes_infos_temporal_train.pkl',
+        ann_file=data_root + 'nuscenes_infos_temporal_train.pkl',
+        # ann_file=data_root + 'dvscenes_infos_temporal_train.pkl',
 
         pipeline=train_pipeline,
         classes=class_names,
@@ -229,16 +229,15 @@ data = dict(
         box_type_3d='LiDAR'),
     val=dict(type=dataset_type,
              data_root=data_root,
-             # ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
-            ann_file=data_root + 'dvscenes_infos_temporal_val.pkl',
+             ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
+            # ann_file=data_root + 'dvscenes_infos_temporal_val.pkl',
 
              pipeline=test_pipeline,  bev_size=(bev_h_, bev_w_),
              classes=class_names, modality=input_modality, samples_per_gpu=1),
     test=dict(type=dataset_type,
               data_root=data_root,
-            #   ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
-            ann_file=data_root + 'dvscenes_infos_temporal_val.pkl',
-
+              ann_file=data_root + 'nuscenes_infos_temporal_val.pkl',
+            #   ann_file=data_root + 'dvscenes_infos_temporal_val.pkl',
               pipeline=test_pipeline, bev_size=(bev_h_, bev_w_),
               classes=class_names, modality=input_modality),
     shuffler_sampler=dict(type='DistributedGroupSampler'),
@@ -262,7 +261,10 @@ lr_config = dict(
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
     min_lr_ratio=1e-3)
-total_epochs = 24
+
+# total_epochs = 24
+total_epochs = 1
+
 evaluation = dict(interval=1, pipeline=test_pipeline)
 
 runner = dict(type='EpochBasedRunner', max_epochs=total_epochs)

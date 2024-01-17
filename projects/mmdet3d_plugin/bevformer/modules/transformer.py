@@ -37,8 +37,8 @@ class PerceptionTransformer(BaseModule):
 
     def __init__(self,
                  num_feature_levels=4,
-                #  num_cams=6,
-                 num_cams=4,
+                 num_cams=6,
+                #  num_cams=4,
                  two_stage_num_proposals=300,
                  encoder=None,
                  decoder=None,
@@ -121,6 +121,7 @@ class PerceptionTransformer(BaseModule):
         bev_pos = bev_pos.flatten(2).permute(2, 0, 1)
 
         # obtain rotation angle and shift with ego motion
+        # 用来做bev之间的特征对齐
         delta_x = np.array([each['can_bus'][0]
                            for each in kwargs['img_metas']])
         delta_y = np.array([each['can_bus'][1]
@@ -166,6 +167,7 @@ class PerceptionTransformer(BaseModule):
         spatial_shapes = []
         for lvl, feat in enumerate(mlvl_feats):
             bs, num_cam, c, h, w = feat.shape
+            # 图像特征
             spatial_shape = (h, w)
             feat = feat.flatten(3).permute(1, 0, 3, 2)
             if self.use_cams_embeds:
@@ -185,13 +187,13 @@ class PerceptionTransformer(BaseModule):
             0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims)
 
         bev_embed = self.encoder(
-            bev_queries,
-            feat_flatten,
-            feat_flatten,
+            bev_queries,  #q  
+            feat_flatten, #k
+            feat_flatten, #v
             bev_h=bev_h,
             bev_w=bev_w,
             bev_pos=bev_pos,
-            spatial_shapes=spatial_shapes,
+            spatial_shapes=spatial_shapes,# image feature
             level_start_index=level_start_index,
             prev_bev=prev_bev,
             shift=shift,
