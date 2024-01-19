@@ -100,7 +100,7 @@ class BEVFormerHead(DETRHead):
             self.reg_branches = nn.ModuleList(
                 [reg_branch for _ in range(num_pred)])
 
-        if not self.as_two_stage:
+        if not self.as_two_stage: 
             self.bev_embedding = nn.Embedding(
                 self.bev_h * self.bev_w, self.embed_dims)
             self.query_embedding = nn.Embedding(self.num_query,

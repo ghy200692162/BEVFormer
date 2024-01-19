@@ -151,8 +151,8 @@ class BEVFormerEncoder(TransformerLayerSequence):
     @auto_fp16()
     def forward(self,
                 bev_query,
-                key,
-                value,
+                key,            # img_feature
+                value,          # img_feature
                 *args,
                 bev_h=None,
                 bev_w=None,
@@ -184,9 +184,10 @@ class BEVFormerEncoder(TransformerLayerSequence):
 
         output = bev_query
         intermediate = []
-
+        #[1,4,2500,3]
         ref_3d = self.get_reference_points(
             bev_h, bev_w, self.pc_range[5]-self.pc_range[2], self.num_points_in_pillar, dim='3d', bs=bev_query.size(1),  device=bev_query.device, dtype=bev_query.dtype)
+        #[1,2500,1,2]
         ref_2d = self.get_reference_points(
             bev_h, bev_w, dim='2d', bs=bev_query.size(1), device=bev_query.device, dtype=bev_query.dtype)
 
@@ -359,8 +360,8 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
 
                 query = self.attentions[attn_index](
                     query,
-                    prev_bev,
-                    prev_bev,
+                    prev_bev, #k
+                    prev_bev, #v
                     identity if self.pre_norm else None,
                     query_pos=bev_pos,
                     key_pos=bev_pos,
@@ -382,8 +383,8 @@ class BEVFormerLayer(MyCustomBaseTransformerLayer):
             elif layer == 'cross_attn':
                 query = self.attentions[attn_index](
                     query,
-                    key,
-                    value,
+                    key,     #k
+                    value,   #v
                     identity if self.pre_norm else None,
                     query_pos=query_pos,
                     key_pos=key_pos,

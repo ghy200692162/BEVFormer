@@ -117,11 +117,16 @@ class PerceptionTransformer(BaseModule):
         """
 
         bs = mlvl_feats[0].size(0)
+        # 插入1，位置插入一个维度，
+        # 插入之前是 bev_query 维度是[2500,256]，插入维度后，bs=1，bev_query=[2500,1,256],
+        # 按照batch维度，对bev_query进行扩展
         bev_queries = bev_queries.unsqueeze(1).repeat(1, bs, 1)
+        # bev_pos的维度[2500,1,256]
         bev_pos = bev_pos.flatten(2).permute(2, 0, 1)
 
         # obtain rotation angle and shift with ego motion
-        # 用来做bev之间的特征对齐
+        # 用来做bev之间的特征对齐;将上一个时刻的激光lidar坐标系，对齐到当前时刻的lidar坐标系
+        # 计算出需要做的相对平移和旋转
         delta_x = np.array([each['can_bus'][0]
                            for each in kwargs['img_metas']])
         delta_y = np.array([each['can_bus'][1]
@@ -168,8 +173,8 @@ class PerceptionTransformer(BaseModule):
         for lvl, feat in enumerate(mlvl_feats):
             bs, num_cam, c, h, w = feat.shape
             # 图像特征
-            spatial_shape = (h, w)
-            feat = feat.flatten(3).permute(1, 0, 3, 2)
+            spatial_shape = (h, w)        #(15,25)
+            feat = feat.flatten(3).permute(1, 0, 3, 2) #[6,1,375,256]
             if self.use_cams_embeds:
                 feat = feat + self.cams_embeds[:, None, None, :].to(feat.dtype)
             feat = feat + self.level_embeds[None,

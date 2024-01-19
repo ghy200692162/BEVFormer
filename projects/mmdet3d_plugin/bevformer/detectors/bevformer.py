@@ -222,7 +222,7 @@ class BEVFormer(MVXTwoStageDetector):
             dict: Losses of different branches.
         """
         
-        len_queue = img.size(1)         #获取当前bev的seq序列长度
+        len_queue = img.size(1)         #获取当前bev的seq序列长度,queue=4
         prev_img = img[:, :-1, ...]     #获取前len_queue个图像
         img = img[:, -1, ...]           #获取最后一个时刻的图像
 
